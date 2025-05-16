@@ -13,10 +13,13 @@ async def main():
             "params": {"group_id": 150508453, "message": "hello  world"},
             "echo": "test"
         }
-        await ws.send(json.dumps(req))
+        #await ws.send(json.dumps(req))
         # 接收响应或事件
         while True:
-            msg = await ws.recv()
-            print("收到消息：", msg)
-
+            msg  = await ws.recv()
+            print(msg)
+            msg  = json.loads(msg)
+            if msg["post_type"] == "message" :
+                if msg["message"][0]["type"] == "text":
+                    print("收到消息：", msg["message"][0]["data"]["text"])
 asyncio.run(main())
