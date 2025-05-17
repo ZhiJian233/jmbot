@@ -1,8 +1,9 @@
 import jmcomic
-from jmcomic import *
+import os
+import pathlib
 
-# 创建配置对象
-option = jmcomic.create_option_by_file('./options/jmcomic_option.yml')
-# 使用option对象来下载本子
-download_album(422866)
-option.download_album(422866)
+def jmcomic_create_option_by_file():
+    jmbot_path = pathlib.Path(__file__).parent.parent.absolute()
+    print(jmbot_path)
+    os.environ['JMBOT_PATH'] = f'{jmbot_path}'
+    return jmcomic.create_option_by_file(f'{jmbot_path}/options/jmcomic_option.yml')
