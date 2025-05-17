@@ -15,10 +15,10 @@ async def main():
         await ws.send(json.dumps(req))
         # 接收响应或事件
         while True:
-            msg  = await ws.recv()
+            msg  = await ws.recv(decode=True)
             print(msg)
-            if qq.get_message_text(msg) is  not None:
-                print(qq.get_message_text(msg))
+            if qq.get_group_message(msg) is  not None:
+                print(qq.get_group_message(msg))
 
 
 
