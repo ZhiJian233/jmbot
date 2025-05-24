@@ -1,3 +1,4 @@
+import websockets
 import json
 from typing import Union, Dict, List, Optional
 
@@ -23,3 +24,12 @@ def get_group_message(json_data: str) -> Optional[Dict[str, Union[List, str, Non
     except json.JSONDecodeError:
         pass
     return None
+
+def send_group_message(ws:websockets.connect,message_to_send:str,group_id:str)  -> None:
+    if message_to_send is None:
+        return
+    req = {
+        "action": "send_group_msg",
+        "params": {"group_id": f"{group_id}", "message": f"{message_to_send}"},
+        # "echo": "test"
+    }

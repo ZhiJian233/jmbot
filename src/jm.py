@@ -1,3 +1,6 @@
+import functools
+from turtle import down
+from typing import Callable, Any
 from typing import Dict
 import os
 import pathlib
@@ -6,17 +9,36 @@ import websockets
 import jmcomic
 
 from qq import get_group_message
+
 def jmcomic_create_option_by_file() -> jmcomic.JmOption:
     jmbot_path = pathlib.Path(__file__).parent.parent.absolute()
     print(jmbot_path)
     os.environ['JMBOT_PATH'] = f'{jmbot_path}'
     return jmcomic.create_option_by_file(f'{jmbot_path}/options/jmcomic_option.yml')
-def creat_dowmload_album_callback(ws:websockets.connect,group_message:Dict)  -> None:
-    def album_callback(album:jmcomic.JmAlbumDetail,dler:jmcomic.JmDownloader):
-            group_message
-            group_id = group_message['group_id']
-            req = {
-                "action": "send_group_msg",
-                "params": {"group_id": f"{group_id}", "message": "hello  world"},
-                "echo": "test"
-            }
+
+
+def jmdownloader_callback_factory(
+    func: Callable,
+    *fixed_args: Any,
+    **fixed_kwargs: Any
+) -> Callable[[Any, Any], Any]:
+    """
+    函数工厂，生成只接收前两个参数的回调函数
+    
+    :param func: 原始函数，需至少接收两个位置参数
+    :param fixed_args: 需要固定的位置参数
+    :param fixed_kwargs: 需要固定的关键字参数
+    :return: 接收两个参数的回调函数
+    """
+    @functools.wraps(func)
+    def wrapped_callback(album: jmcomic.JmAlbumDetail, downloader: jmcomic.JmDownloader) -> Any:
+        return func(album, downloader, *fixed_args, **fixed_kwargs)
+    return wrapped_callback
+
+            # group_message
+            # group_id = group_message['group_id']
+            # req = {
+            #     "action": "send_group_msg",
+            #     "params": {"group_id": f"{group_id}", "message": "hello  world"},
+            #     "echo": "test"
+            # }
