@@ -8,14 +8,13 @@ import websockets
 #from jmcomic  import *
 import jmcomic
 
-from qq import get_group_message
+from qq import get_group_message,send_group_message
 
 def jmcomic_create_option_by_file() -> jmcomic.JmOption:
     jmbot_path = pathlib.Path(__file__).parent.parent.absolute()
     print(jmbot_path)
     os.environ['JMBOT_PATH'] = f'{jmbot_path}'
-    return jmcomic.create_option_by_file(f'{jmbot_path}/options/jmcomic_option.yml')
-
+    return jmcomic.create_option_by_file(f'{jmbot_path}/options/jmcomic_option.yml')    
 
 def jmdownloader_callback_factory(
     func: Callable,
@@ -34,11 +33,3 @@ def jmdownloader_callback_factory(
     def wrapped_callback(album: jmcomic.JmAlbumDetail, downloader: jmcomic.JmDownloader) -> Any:
         return func(album, downloader, *fixed_args, **fixed_kwargs)
     return wrapped_callback
-
-            # group_message
-            # group_id = group_message['group_id']
-            # req = {
-            #     "action": "send_group_msg",
-            #     "params": {"group_id": f"{group_id}", "message": "hello  world"},
-            #     "echo": "test"
-            # }
