@@ -1,11 +1,9 @@
 import functools
-from turtle import down
 from typing import Callable, Any
 from typing import Dict
 import os
 import pathlib
 import websockets
-#from jmcomic  import *
 import jmcomic
 
 from qq import get_group_message,send_group_message
