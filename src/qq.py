@@ -1,7 +1,9 @@
+import os
 import asyncio
 import websockets
 import json
 from typing import Union, Dict, List, Optional
+import file_utils
 
 def get_group_message(json_data: str) -> Optional[Dict[str, Union[List[Optional[Dict[str,Union[str,Dict]]]], str, None]]]: 
     if json_data is None:
@@ -13,6 +15,7 @@ def get_group_message(json_data: str) -> Optional[Dict[str, Union[List[Optional[
         "user_id": None
     }
     try:
+        print(json_data)
         json_data = json.loads(json_data)
         if (isinstance(json_data, dict) and 
             json_data.get("post_type") == "message" and 
@@ -36,6 +39,7 @@ def send_group_message(ws:websockets.ClientConnection,message_to_send:str,group_
         "action": "send_group_msg",
         "params": {"group_id": f"{group_id}", "message": f"{message_to_send}"}
     }
+    
     loop = asyncio.get_event_loop()
     future = asyncio.run_coroutine_threadsafe(ws.send(json.dumps(req)), loop)
 
@@ -48,9 +52,7 @@ def get_group_message_text(json_data: str) -> Optional[str]:
     :rtype:
     """
     text = ""
-    print(json_data)
     group_message = get_group_message(json_data)
-    print(group_message)
     if group_message is None:
         print("群消息为空")
         return None
@@ -72,3 +74,63 @@ def get_group_message_text(json_data: str) -> Optional[str]:
             print(text_content)
             text += text_content
     return text if text else None
+
+def photos_send_test():
+    jmpath = os.environ['JMBOT_PATH']
+    for path in file_utils.list_files_iter(f'{jmpath}/albums'):
+        print(path)
+
+
+async def send_forward_msg(ws:websockets.ClientConnection,group_id:str,content:list) -> None:
+    data = {
+    "group_id": f"{group_id}",
+    "messages": [
+        {
+            "type": "node",
+            "data": {
+                "user_id": 2377284392,
+                "nickname": "麦麦",
+                "content": content,
+            }
+        }
+    ],
+    "news": [
+        {
+            "text": "奇怪"
+        }
+    ],
+    "prompt": "123",
+    "summary": "123",
+    "source": "123"
+}
+    req = {
+        "action": "send_forward_msg",
+        "params": data
+    }
+    # loop = asyncio.get_event_loop()
+    # future = asyncio.run_coroutine_threadsafe(ws.send(json.dumps(req)), loop)
+    await ws.send(json.dumps(req))
+    # msg = await ws.recv(decode=True)
+    # json_data = json.loads(msg)
+    # if (isinstance(json_data, dict) and 
+    #         json_data.get("status") == "failed" and 
+    #         json_data.get("retcode") == 1200):
+    #     send_group_message(ws,"发送失败",group_id)
+    
+
+async def send_forward_photos(ws:websockets.ClientConnection,group_id:str,albums_id:str) -> None:
+    content = []
+    jmpath = os.environ['JMBOT_PATH']
+    photos = file_utils.list_files_iter(f"{jmpath}/albums/{albums_id}")
+    for photo in photos :
+        content.append(
+            {
+                "type" : "image" ,
+                "data" : 
+                {
+                    "file" : f"{photo}"
+                }
+            }
+        )
+        print(content)
+    await send_forward_msg(ws,group_id,content)
