@@ -1,3 +1,5 @@
 albums/
 src/__pycache__/
 .venv/
+.vscode/
+options/*_option.yml
