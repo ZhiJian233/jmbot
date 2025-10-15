@@ -3,7 +3,10 @@ import asyncio
 import websockets
 import json
 from typing import Union, Dict, List, Optional
+
 import file_utils
+from dataclasses import dataclass
+from pydantic import BaseModel
 
 def get_group_message(json_data: str) -> Optional[Dict[str, Union[List[Optional[Dict[str,Union[str,Dict]]]], str, None]]]: 
     if json_data is None:
@@ -134,3 +137,9 @@ async def send_forward_photos(ws:websockets.ClientConnection,group_id:str,albums
         )
         print(content)
     await send_forward_msg(ws,group_id,content)
+
+
+@dataclass
+class BaseWSMessage(BaseModel):
+
+    
