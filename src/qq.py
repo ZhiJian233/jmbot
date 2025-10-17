@@ -1,11 +1,12 @@
 import os
 import asyncio
+from re import A
 import websockets
 import json
-from typing import Union, Dict, List, Optional
+from typing import LiteralString, Union, Dict, List, Optional, Literal, Annotated, Any
 
 import file_utils
-from dataclasses import dataclass
+from dataclasses import Field, dataclass
 from pydantic import BaseModel
 
 def get_group_message(json_data: str) -> Optional[Dict[str, Union[List[Optional[Dict[str,Union[str,Dict]]]], str, None]]]: 
@@ -143,21 +144,34 @@ class Sender(BaseModel):
     nickname : str
 
 class GroupSender(Sender):
-    card : str
-    rolr : str
+    card: str
+    rolr: str
 
 
+class BaseEvent(BaseModel):
+    post_type: str
+    time: int
 
-class   BaseEvent(BaseModel):
-    time : int
-    post_type : str
+class MessageSegment(BaseModel):
+    type: str
+    data: Dict[str, Any]
 
-class 
-class   MessageEvent(BaseEvent):
-    post_type : str = "message"
-    message_type : str
-    user_id : int
-    group_id : Optional[int] = None
+class MessageEvent(BaseEvent):
+    post_type: Literal["message"]
+    user_id: int
+    message: List[MessageSegment]
+    raw_message: str
+                             
+class GroupMessageEvent(MessageEvent):
+    message_type: Literal["group"]
+    group_id: int
+    sender: GroupSender
 
+class PrivateMessageEvent(MessageEvent):
+    message_type: Literal["private"]
+    sender: Sender
+
+class QQBot:
+    ws:websockets.ClientConnection
 
 
