@@ -138,8 +138,26 @@ async def send_forward_photos(ws:websockets.ClientConnection,group_id:str,albums
         print(content)
     await send_forward_msg(ws,group_id,content)
 
+class Sender(BaseModel):
+    user_id : int
+    nickname : str
 
-@dataclass
-class BaseWSMessage(BaseModel):
+class GroupSender(Sender):
+    card : str
+    rolr : str
 
-    
+
+
+class   BaseEvent(BaseModel):
+    time : int
+    post_type : str
+
+class 
+class   MessageEvent(BaseEvent):
+    post_type : str = "message"
+    message_type : str
+    user_id : int
+    group_id : Optional[int] = None
+
+
+
