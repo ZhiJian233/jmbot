@@ -6,8 +6,7 @@ import json
 from typing import LiteralString, Union, Dict, List, Optional, Literal, Annotated, Any
 
 import file_utils
-from dataclasses import Field, dataclass
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 def get_group_message(json_data: str) -> Optional[Dict[str, Union[List[Optional[Dict[str,Union[str,Dict]]]], str, None]]]: 
     if json_data is None:
@@ -171,7 +170,39 @@ class PrivateMessageEvent(MessageEvent):
     message_type: Literal["private"]
     sender: Sender
 
+Message = Annotated[Union[PrivateMessageEvent,GroupMessageEvent],Field(discriminator='message_type')]
+
 class QQBot:
     ws:websockets.ClientConnection
 
 
+    def __init__(self, ws:websockets.ClientConnection):
+        self.ws=ws
+
+        
+    def parse_message(json: str) -> Message:
+        try:
+            return Message.model_validate_json(json)
+        except Exception as e:
+            raise ValueError(f"无效信息 JSON: {e}")
+        
+    def ifis_group_message(message: Message) -> GroupMessageEvent:
+        if isinstance(message, GroupMessageEvent):
+            return message
+        else:
+            pass
+        
+    def ifis_private_message(message: Message) -> bool:
+        if isinstance(message, PrivateMessageEvent):
+            return message
+        else:
+            pass
+        
+    async def send_group_message(ws:websockets.ClientConnection,message_to_send:str,group_id:str)  -> None:
+        #if message_to_send is None:
+        #    return
+        req = {
+            "action": "send_group_msg",
+            "params": {"group_id": f"{group_id}", "message": f"{message_to_send}"}
+        }
+        await ws.send(json.dump(req))

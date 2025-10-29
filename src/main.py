@@ -6,7 +6,7 @@ import asyncio
 import qq
 import yaml
 import jm
-
+from qq import *
 albums_id_to_name_map = {}
 async def main():
     jmoption=jm.jmcomic_create_option_by_file()
@@ -19,8 +19,13 @@ async def main():
             msg = await ws.recv(decode=True)
             msg_text = qq.get_group_message_text(msg)
 
-            
+            bot = QQBot(ws)
 
+            message_event = bot.ifis_group_message(bot.parse_message(msg))
+            
+            bot.send_group_message()
+            
+            
             if msg_text is not None:
                 # qq.send_forward_photos(ws,json.loads(msg).get("group_id"),"[MANA] 神里绫华 1 (原神) [中国语] [无修正]")
                 if msg_text.strip().isdigit():
