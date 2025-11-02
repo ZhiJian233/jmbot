@@ -1,13 +1,16 @@
+from email import message
+from email.contentmanager import ContentManager
 import os
 import asyncio
 from re import A
+#from turtle import title
 import websockets
 import json
 from typing import LiteralString, Union, Dict, List, Optional, Literal, Annotated, Any
 
 import file_utils
 from pydantic import BaseModel, Field
-
+from jmcomic import *
 def get_group_message(json_data: str) -> Optional[Dict[str, Union[List[Optional[Dict[str,Union[str,Dict]]]], str, None]]]: 
     if json_data is None:
         print("json_data为空")
@@ -84,7 +87,7 @@ def photos_send_test():
         print(path)
 
 
-async def send_forward_msg(ws:websockets.ClientConnection,group_id:str,content:list) -> None:
+async def send_forward_msg(ws:websockets.ClientConnection,group_id:str,content:list, title: str, subtitle: str) -> None:
     data = {
     "group_id": f"{group_id}",
     "messages": [
@@ -99,12 +102,12 @@ async def send_forward_msg(ws:websockets.ClientConnection,group_id:str,content:l
     ],
     "news": [
         {
-            "text": "奇怪"
+            "text": subtitle
         }
     ],
-    "prompt": "123",
-    "summary": "123",
-    "source": "123"
+    "prompt": title,
+    "summary": title,
+    "source": title
 }
     req = {
         "action": "send_forward_msg",
@@ -121,10 +124,10 @@ async def send_forward_msg(ws:websockets.ClientConnection,group_id:str,content:l
     #     send_group_message(ws,"发送失败",group_id)
     
 
-async def send_forward_photos(ws:websockets.ClientConnection,group_id:str,albums_id:str) -> None:
+async def send_forward_photos(ws:websockets.ClientConnection,group_id:str,albums: JmAlbumDetail) -> None:
     content = []
     jmpath = os.environ['JMBOT_PATH']
-    photos = file_utils.list_files_iter(f"{jmpath}/albums/{albums_id}")
+    photos = file_utils.list_files_iter(f"{jmpath}/albums/{albums.title}")
     for photo in photos :
         content.append(
             {
@@ -136,7 +139,7 @@ async def send_forward_photos(ws:websockets.ClientConnection,group_id:str,albums
             }
         )
         print(content)
-    await send_forward_msg(ws,group_id,content)
+    await send_forward_msg(ws,group_id,content, albums.name, albums.author)
 
 class Sender(BaseModel):
     user_id : int
@@ -144,7 +147,7 @@ class Sender(BaseModel):
 
 class GroupSender(Sender):
     card: str
-    rolr: str
+    role: str
 
 
 class BaseEvent(BaseModel):
@@ -180,29 +183,54 @@ class QQBot:
         self.ws=ws
 
         
-    def parse_message(json: str) -> Message:
+    @staticmethod
+    def parse_message(json_str: str) -> Message:
         try:
-            return Message.model_validate_json(json)
+            data = json.loads(json_str)
+            if data.get("message_type") == "group":
+                return GroupMessageEvent.model_validate(data)
+            elif data.get("message_type") == "private":
+                return PrivateMessageEvent.model_validate(data)
+            else:
+                raise ValueError("Unknown message type")
         except Exception as e:
             raise ValueError(f"无效信息 JSON: {e}")
         
-    def ifis_group_message(message: Message) -> GroupMessageEvent:
+    @staticmethod
+    def is_group_message(message: Message) -> bool:
         if isinstance(message, GroupMessageEvent):
-            return message
+            return True
         else:
-            pass
+            return False
         
-    def ifis_private_message(message: Message) -> bool:
+    @staticmethod
+    def is_private_message(message: Message) -> bool:
         if isinstance(message, PrivateMessageEvent):
-            return message
+            return True
         else:
-            pass
+            return False
         
-    async def send_group_message(ws:websockets.ClientConnection,message_to_send:str,group_id:str)  -> None:
-        #if message_to_send is None:
-        #    return
+    @staticmethod
+    def is_pure_text_message(message: Message) -> bool:
+        for message_content in message.message:
+            if message_content.type != "text":
+                return False
+        return True
+    @staticmethod
+    def get_message_text_content(message: Message) -> Optional[str]:
+        content :str =""
+        for message_content in message.message:
+            if message_content.type == "text":
+                content = content + message_content.data["text"]
+        return content
+
+
+
+    async def send_group_message(self, message_to_send: str, group_id: str) -> None:
+        if message_to_send is None:
+            return
         req = {
             "action": "send_group_msg",
             "params": {"group_id": f"{group_id}", "message": f"{message_to_send}"}
         }
-        await ws.send(json.dump(req))
+        await self.ws.send(json.dumps(req))

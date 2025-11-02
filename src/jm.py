@@ -15,4 +15,11 @@ def jmcomic_create_option_by_file() -> jmcomic.JmOption:
     os.environ['JMBOT_PATH'] = f'{jmbot_path}'
     return jmcomic.create_option_by_file(f'{jmbot_path}/options/jmcomic_option.yml')
 
+class JmDownloader:
+    def __init__(self) -> None:
+        client = jmcomic_create_option_by_file().build_jm_client()
+        pass
+
+
+
 
