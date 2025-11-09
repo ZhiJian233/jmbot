@@ -7,7 +7,6 @@ import websockets
 import jmcomic
 import aiosqlite
 
-from qq import get_group_message,send_group_message
 
 def jmcomic_create_option_by_file() -> jmcomic.JmOption:
     jmbot_path = pathlib.Path(__file__).parent.parent.absolute()
