@@ -78,7 +78,8 @@ from jmcomic import *
 #             print(text_content)
 #             text += text_content
 #     return text if text else None
-
+import logging
+logger = logging.getLogger(__name__)
 
 class Sender(BaseModel):
     user_id : int
@@ -224,13 +225,14 @@ class QQBot:
             try:
                 msg = await self.ws.recv(decode=True)
             except websockets.exceptions.ConnectionClosed:
-                print("WebSocket connection closed")
+                logger.error("WebSocket connection closed")
+                asyncio.sleep(3)
                 continue
             try:
                 message = self.parse_message(msg)
             except Exception as e:
-                print(e)
+                logger.error(e) 
                 continue
             event_data : event.Event = event.Event("MESSAGE_EVENT", message)
-            print(message)
+            logger.info(message)
             await self.event_queue.put_event(event_data)

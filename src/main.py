@@ -1,6 +1,6 @@
+import logging
 import event
 from calendar import c
-from re import L
 import jmcomic
 import requests
 import json
@@ -52,14 +52,22 @@ async def process_queue(queue: asyncio.Queue, bot: QQBot):
 
 
 async def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[logging.StreamHandler(), logging.FileHandler('jm_bot.log')]
+    )
+    logger = logging.getLogger(__name__)
+    
     jmoption: jmcomic.JmOption = jm.jmcomic_create_option_by_file()
     jmclient: Union[jmcomic.JmHtmlClient, jmcomic.JmApiClient] =  jmoption.build_jm_client()
-    albums_id_to_name_map = {}
     with open('options/qq_option.yml', 'r') as f:
         config = yaml.safe_load(f)
     uri = config.get('url', 'ws://localhost:3001/')
-
+    
     async with websockets.connect(uri) as ws:
+        logger.info("websocket已连接") 
+        logger.info("开始初始化")
 
         queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
@@ -68,7 +76,7 @@ async def main():
         message_handler = MessageHandler(main_event_queue, queue, jmoption, bot, loop)
         main_event_queue.register_handler(message_handler)
         asyncio.create_task(process_queue(queue, bot))
-
+        logger.info("初始化完成 开始运行")
         # Keep the connection alive
         await asyncio.Future()  # Run forever
 
