@@ -207,7 +207,7 @@ class QQBot:
         content = []
         jmpath = os.environ['JMBOT_PATH']
         photos = file_utils.list_files_iter(f"{jmpath}/albums/{albums.title}")
-        for photo in photos :
+        async for photo in photos :
             content.append(
                 {
                     "type" : "image" ,
@@ -217,7 +217,7 @@ class QQBot:
                     }
                 }
             )
-            print(content)
+        logger.info(f"向{group_id}发送:{albums.name}") 
         await self.send_forward_msg(group_id,content, albums.name, albums.author)
 
     async def receive_message(self) -> None:

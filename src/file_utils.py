@@ -1,8 +1,9 @@
 import os
 from pathlib import Path
 from typing import Iterator, Union, Optional, List
+import asyncio
 
-def list_files_iter(
+async def list_files_iter(
     directory: Union[str, Path],
     recursive: bool = True,
     include_dirs: bool = False,
@@ -49,7 +50,7 @@ def list_files_iter(
     for path in sorted(paths):
         yield path
 
-def list_files_relative(
+async def list_files_relative(
     directory: Union[str, Path],
     recursive: bool = True,
     include_dirs: bool = False,
@@ -90,7 +91,7 @@ def list_files_relative(
 
         yield str(path.relative_to(directory))
 
-def list_files_name_only(
+async def list_files_name_only(
     directory: Union[str, Path],
     recursive: bool = True,
     include_dirs: bool = False,
