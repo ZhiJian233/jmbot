@@ -18,6 +18,7 @@ class MessageHandler(event.EventHandler):
         super().__init__("MESSAGE_EVENT", event_queue)
         self.queue = queue
         self.jmoption = jmoption
+        self.jmclient: Union[jmcomic.JmHtmlClient, jmcomic.JmApiClient] = jmoption.build_jm_client()
         self.bot = bot
         self.loop = loop
 
@@ -29,10 +30,12 @@ class MessageHandler(event.EventHandler):
                 album_id = int(text.strip())
 
                 def callback(album: jmcomic.JmAlbumDetail, downloader):
+                    logger.info(f"专辑{album.name}下载完成")
                     asyncio.run_coroutine_threadsafe(self.queue.put((album, album_id, message.group_id)), self.loop)
-
-                await self.bot.send_group_message(f"开始下载专辑 {album_id}", str(message.group_id))
                 try:
+                    album_detail: JmAlbumDetail = self.jmclient.get_album_detail(album_id)
+                    await self.bot.send_group_message(f"开始下载专辑 {album_id}[{album_detail.name}]{album_detail.tags}", str(message.group_id))
+                
                     await asyncio.get_event_loop().run_in_executor(None,
                     lambda: self.jmoption.download_photo(str(album_id), callback=callback))
                 except Exception as e:
