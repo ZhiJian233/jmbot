@@ -1,85 +1,22 @@
-from email import message
-from email.contentmanager import ContentManager
+#from email import message
+#from email.contentmanager import ContentManager
 import os
 import asyncio
+import re
 import websockets
 import json
 from typing import LiteralString, Union, Dict, List, Optional, Literal, Annotated, Any
 import event
 import file_utils
 from pydantic import BaseModel, Field
-from jmcomic import *
-# def get_group_message(json_data: str) -> Optional[Dict[str, Union[List[Optional[Dict[str,Union[str,Dict]]]], str, None]]]: 
-#     if json_data is None:
-#         print("json_data为空")
-#         return None
-#     group_message = {
-#         "messages": [],
-#         "group_id": None,
-#         "user_id": None
-#     }
-#     try:
-#         print(json_data)
-#         json_data = json.loads(json_data)
-#         if (isinstance(json_data, dict) and 
-#             json_data.get("post_type") == "message" and 
-#             json_data.get("message_type") == "group"):
-#             group_message["group_id"] = json_data.get("group_id")
-#             group_message["user_id"] = json_data.get("user_id")
-#             messages = json_data.get("message", [])
-#             if isinstance(messages, list) and messages:
-#                 group_message["messages"] = messages
-#                 print("群消息解析成功")
-#                 return group_message
-#     except json.JSONDecodeError:
-#         print("json_data解析错误")
-#         pass
-#     return None
+from jmcomic import JmAlbumDetail
+import time
+import datetime
 
-# def send_group_message(ws:websockets.ClientConnection,message_to_send:str,group_id:str)  -> None:
-#     if message_to_send is None:
-#         return
-#     req = {
-#         "action": "send_group_msg",
-#         "params": {"group_id": f"{group_id}", "message": f"{message_to_send}"}
-#     }
-    
-#     loop = asyncio.get_event_loop()
-#     future = asyncio.run_coroutine_threadsafe(ws.send(json.dumps(req)), loop)
-
-
-# def get_group_message_text(json_data: str) -> Optional[str]:
-#     """
-#     获取群消息的文本
-#     :param json_data:
-#     :return:
-#     :rtype:
-#     """
-#     text = ""
-#     group_message = get_group_message(json_data)
-#     if group_message is None:
-#         print("群消息为空")
-#         return None
-#     messages = group_message.get("messages", [])
-#     if not isinstance(messages, list):
-#         print("群消息不是列表")
-#         return None
-#     for message in messages:
-        
-#         if not isinstance(message, dict) or message.get("type") != "text":
-#             continue
-            
-#         text_data = message.get("data", {})
-#         if not isinstance(text_data, dict):
-#             continue
-            
-#         text_content = text_data.get("text", "")
-#         if isinstance(text_content, str):
-#             print(text_content)
-#             text += text_content
-#     return text if text else None
 import logging
-logger = logging.getLogger(__name__)
+
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 class Sender(BaseModel):
     user_id : int
@@ -132,9 +69,9 @@ class QQBot:
             elif data.get("message_type") == "private":
                 return PrivateMessageEvent.model_validate(data)
             else:
-                raise ValueError("Unknown message type")
+                raise ValueError(f"Unknown message type: {json_str}")
         except Exception as e:
-            raise ValueError(f"无效信息 JSON: {e}")
+            raise ValueError(f"无效信息 JSON: {json_str}")
         
     @staticmethod
     def is_group_message(message: Message) -> bool:
@@ -183,7 +120,7 @@ class QQBot:
                 "type": "node",
                 "data": {
                     "user_id": 2377284392,
-                    "nickname": "麦麦",
+                    "nickname": f"麦麦",
                     "content": content,
                 }
             }
@@ -202,11 +139,27 @@ class QQBot:
             "params": data
         }
         await self.ws.send(json.dumps(req))
+
+    def __make_forward_msg_content(self, content: list, title: str, subtitle: str) -> Dict:
+        data = {
+                "type": "node",
+                "data": {
+                    "user_id": 2377284392,
+                    "nickname": "麦麦",
+                    "content": content,
+                },
+                "news":[{
+                    "text": subtitle
+                }],
+                "prompt": title,
+                "summary": title,
+                "source": title}
+        return data
         
     async def send_forward_photos(self, group_id:str,albums: JmAlbumDetail) -> None:
         content = []
         jmpath = os.environ['JMBOT_PATH']
-        photos = file_utils.list_files_iter(f"{jmpath}/albums/{albums.title}")
+        photos = file_utils.list_files_iter(f"{jmpath}/albums/{albums.id}")
         count = 0
         vol = 1
         async for photo in photos :
@@ -214,29 +167,53 @@ class QQBot:
             content.append(
                 {
                     "type" : "image" ,
-                    "data" : 
+                    "data" :
                     {
                         "file" : f"{photo}"
                     }
                 }
             )
-            if count == 100:
-                await self.send_forward_msg(group_id,content, f"vol {vol} {albums.name}", albums.author)
+            logger.info(f"添加图片 vol.{vol} {count}")
+            if count == 99:
+                content.append(
+                    {
+                        "type" : "text" ,
+                        "data" :
+                        {
+                            "text" : f"{int(time.time())}"
+                        }
+                    }
+                )
+                logger.info(f"向{group_id}发送:{albums.name} part vol {vol}")
+                #forward_msg_list.append(self.__make_forward_msg_content(content, f"vol {vol} {albums.name}", albums.author))
+                await self.send_forward_msg(group_id, content, f"vol.{vol} {albums.name}", f"{albums.author}@{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 logger.info(f"{vol} {count}")
                 count = 0
                 vol += 1
                 content = []
-        logger.info(f"向{group_id}发送:{albums.name}")
-        await self.send_forward_msg(group_id,content, f"vol {vol} {albums.name}", albums.author)
-        logger.info(f"{vol} {count}")
 
+
+        content.append(
+                    {
+                        "type" : "text" ,
+                        "data" :
+                        {
+                            "text" : f"{int(time.time())}"
+                        }
+                    }
+                )
+        logger.info(f"向{group_id}发送:{albums.name} part vol {vol}")
+        #forward_msg_list.append(self.__make_forward_msg_content(content, f"vol {vol} {albums.name}", albums.author))
+        await self.send_forward_msg(group_id, content, f"vol.{vol} {albums.name}", f"{albums.author}@{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
     async def receive_message(self) -> None:
         while True:
+            await asyncio.sleep(0.2)
             try:
                 msg = await self.ws.recv(decode=True)
             except websockets.exceptions.ConnectionClosed:
                 logger.error("WebSocket connection closed")
-                asyncio.sleep(3)
+                await asyncio.sleep(3)
                 continue
             try:
                 message = self.parse_message(msg)

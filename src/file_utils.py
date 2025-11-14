@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Iterator, Union, Optional, List
+from typing import AsyncIterator, Iterator, Union, Optional, List
 import asyncio
 
 async def list_files_iter(
@@ -8,7 +8,7 @@ async def list_files_iter(
     recursive: bool = True,
     include_dirs: bool = False,
     extensions: Optional[List[str]] = None
-) -> Iterator[str]:
+) -> AsyncIterator[str]:
     """
     返回文件夹下所有文件名的迭代器（按字母顺序排序）
 
@@ -55,7 +55,7 @@ async def list_files_relative(
     recursive: bool = True,
     include_dirs: bool = False,
     extensions: Optional[List[str]] = None
-) -> Iterator[str]:
+) -> AsyncIterator[str]:
     """
     返回文件夹下所有文件名的迭代器（相对路径）
 
@@ -96,7 +96,7 @@ async def list_files_name_only(
     recursive: bool = True,
     include_dirs: bool = False,
     extensions: Optional[List[str]] = None
-) -> Iterator[str]:
+) -> AsyncIterator[str]:
     """
     返回文件夹下所有文件名的迭代器（仅文件名）
 
@@ -133,33 +133,39 @@ async def list_files_name_only(
         yield path.name
 
 # 快捷函数
-def list_all_files(directory: Union[str, Path]) -> Iterator[str]:
+async def list_all_files(directory: Union[str, Path]) -> AsyncIterator[str]:
     """返回文件夹下所有文件的完整路径"""
-    return list_files_iter(directory, recursive=True, include_dirs=False)
+    async for item in list_files_iter(directory, recursive=True, include_dirs=False):
+        yield item
 
-def list_all_files_relative(directory: Union[str, Path]) -> Iterator[str]:
+async def list_all_files_relative(directory: Union[str, Path]) -> AsyncIterator[str]:
     """返回文件夹下所有文件的相对路径"""
-    return list_files_relative(directory, recursive=True, include_dirs=False)
+    async for item in list_files_relative(directory, recursive=True, include_dirs=False):
+        yield item
 
-def list_all_files_name(directory: Union[str, Path]) -> Iterator[str]:
+async def list_all_files_name(directory: Union[str, Path]) -> AsyncIterator[str]:
     """返回文件夹下所有文件的文件名"""
-    return list_files_name_only(directory, recursive=True, include_dirs=False)
+    async for item in list_files_name_only(directory, recursive=True, include_dirs=False):
+        yield item
 
-if __name__ == "__main__":
+async def main():
     # 测试代码
     test_dir = "."
     print("完整路径:")
-    for file_path in list_all_files(test_dir):
+    async for file_path in list_all_files(test_dir):
         print(f"  {file_path}")
 
     print("\n相对路径:")
-    for file_path in list_all_files_relative(test_dir):
+    async for file_path in list_all_files_relative(test_dir):
         print(f"  {file_path}")
 
     print("\n文件名:")
-    for file_name in list_all_files_name(test_dir):
+    async for file_name in list_all_files_name(test_dir):
         print(f"  {file_name}")
 
     print("\n仅.py文件:")
-    for py_file in list_files_iter(test_dir, extensions=['.py']):
+    async for py_file in list_files_iter(test_dir, extensions=['.py']):
         print(f"  {py_file}")
+
+if __name__ == "__main__":
+    asyncio.run(main())

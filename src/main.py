@@ -57,7 +57,7 @@ async def process_queue(queue: asyncio.Queue, bot: QQBot):
 async def main():
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format='%(asctime)s[%(name)s]\t[%(levelname)s]\t%(message)s',
         handlers=[logging.StreamHandler(), logging.FileHandler('jm_bot.log')]
     )
     logger = logging.getLogger(__name__)
@@ -84,6 +84,3 @@ async def main():
         await asyncio.Future()  # Run forever
 
 asyncio.run(main())
-
-# jmoption=jm.jmcomic_create_option_by_file()
-# qq.photos_send_test()
