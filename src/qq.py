@@ -6,6 +6,7 @@ import re
 import websockets
 import json
 from typing import LiteralString, Union, Dict, List, Optional, Literal, Annotated, Any
+from event_core import EventQueue, Event
 import event
 import file_utils
 from pydantic import BaseModel, Field
@@ -53,7 +54,7 @@ class PrivateMessageEvent(MessageEvent):
 Message = Annotated[Union[PrivateMessageEvent,GroupMessageEvent],Field(discriminator='message_type')]
 
 class QQBot:
-    def __init__(self, ws:websockets.ClientConnection, event_queue: event.EventQueue, loop :asyncio.AbstractEventLoop):
+    def __init__(self, ws:websockets.ClientConnection, event_queue: EventQueue, loop :asyncio.AbstractEventLoop):
         self.ws = ws
         self.event_queue = event_queue
         self.loop = loop
@@ -186,40 +187,33 @@ class QQBot:
                 )
                 logger.info(f"向{group_id}发送:{albums.name} part vol {vol}")
                 #forward_msg_list.append(self.__make_forward_msg_content(content, f"vol {vol} {albums.name}", albums.author))
-                await self.send_forward_msg(group_id, content, f"vol.{vol} {albums.name}", f"{albums.author}@{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                asyncio.create_task(self.send_forward_msg(group_id, content, f"vol.{vol} {albums.name}", f"{albums.author}@{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"))
                 logger.info(f"{vol} {count}")
                 count = 0
                 vol += 1
                 content = []
 
-
-        content.append(
-                    {
-                        "type" : "text" ,
-                        "data" :
-                        {
-                            "text" : f"{int(time.time())}"
-                        }
-                    }
-                )
         logger.info(f"向{group_id}发送:{albums.name} part vol {vol}")
         #forward_msg_list.append(self.__make_forward_msg_content(content, f"vol {vol} {albums.name}", albums.author))
-        await self.send_forward_msg(group_id, content, f"vol.{vol} {albums.name}", f"{albums.author}@{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        asyncio.create_task(self.send_forward_msg(group_id, content, f"vol.{vol} {albums.name}", f"{albums.author}@{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"))
         
     async def receive_message(self) -> None:
         while True:
-            await asyncio.sleep(0.2)
+            message = None  # Initialize message to None
             try:
                 msg = await self.ws.recv(decode=True)
             except websockets.exceptions.ConnectionClosed:
                 logger.error("WebSocket connection closed")
-                await asyncio.sleep(3)
-                continue
+                await asyncio.sleep(30)
+                continue # Continue the loop to try reconnecting
+
             try:
                 message = self.parse_message(msg)
             except Exception as e:
-                logger.error(e) 
-                continue
-            event_data : event.Event = event.Event("MESSAGE_EVENT", message)
-            logger.info(message)
-            await self.event_queue.put_event(event_data)
+                logger.error(f"Error parsing message: {e}")
+                continue # Skip this message if parsing fails
+            
+            if message: # Only process if message was successfully parsed
+                event_data = Event("MESSAGE_EVENT", message)
+                logger.info(message)
+                await self.event_queue.put_event(event_data)
