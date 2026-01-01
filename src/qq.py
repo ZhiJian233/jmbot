@@ -38,7 +38,7 @@ class QQBot:
             else:
                 raise ValueError(f"Unknown message type: {json_str}")
         except Exception as e:
-            raise ValueError(f"无效信息 JSON: {json_str}")
+            raise ValueError(f"{e}.无效信息 JSON: {json_str}")
         
     @staticmethod
     def is_group_message(message: Message) -> bool:
@@ -138,7 +138,7 @@ class QQBot:
                     "type" : "image" ,
                     "data" :
                     {
-                        "file" : f"{photo}"
+                        "file" : f"file:///{photo}"
                     }
                 }
             )
@@ -168,7 +168,7 @@ class QQBot:
 
     async def receive_message(self) -> None:
         while True:
-            message = None  # Initialize message to None
+            #message = None  # Initialize message to None
             try:
                 msg = await self.ws.recv(decode=True)
             except websockets.exceptions.ConnectionClosed:
@@ -176,13 +176,13 @@ class QQBot:
                 await asyncio.sleep(30)
                 continue # Continue the loop to try reconnecting
 
-            try:
-                message = self.parse_message(msg)
-            except Exception as e:
-                logger.error(f"Error parsing message: {e}")
-                continue # Skip this message if parsing fails
+            # try:
+            #     message = self.parse_message(msg)
+            # except Exception as e:
+            #     logger.error(f"Error parsing message: {e}")
+            #     continue # Skip this message if parsing fails
             
-            if message: # Only process if message was successfully parsed
-                event_data = Event("MESSAGE_EVENT", message)
-                logger.info(message)
+            if msg: # Only process if message was successfully parsed
+                event_data = Event("MESSAGE_EVENT", msg)
+                logger.info(msg)
                 await self.event_queue.put_event(event_data)

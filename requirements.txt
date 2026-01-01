@@ -18,3 +18,4 @@ requests>=2.32.3
 urllib3>=2.4.0
 websockets>=15.0.1
 wrapt>=1.17.2
+pydantic>=2.0.0

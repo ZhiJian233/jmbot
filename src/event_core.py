@@ -4,7 +4,10 @@ from email import message
 from math import e
 from typing import Any, Tuple, Callable, Awaitable, Optional
 from jmcomic import JmAlbumDetail
-from qq import Message, GroupMessage, PrivateMessage
+from message_types import Message, GroupMessage, PrivateMessage
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Event:
@@ -59,7 +62,8 @@ class EventQueue:
 
     async def process_events(self) -> None:
         while True:
-            event = await self.queue.get()
+            event: Event = await self.queue.get()
+            logger.info(event.type)
             for handler in self.handler_list:
                 handler(event)
                 # if handler.can_handle(event):
@@ -74,13 +78,13 @@ class EventHandler:
         self.event_queue.register_handler(self)
 
     def __call__(self, event: Event) -> Any:
-        if self.can_handle(event):
+        if event.type == self.event_type and self.can_handle(event):
             asyncio.create_task(self.handle_event(event))
 
     def can_handle(self, event: Event) -> bool:
         if self.can_handle_func:
-            return self.can_handle_func(event) and event.type == self.event_type
-        return event.type == self.event_type
+            return self.can_handle_func(event)
+        return True
 
     async def handle_event(self, event: Event) -> None:
         if self.handle_func:

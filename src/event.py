@@ -5,6 +5,7 @@ import datetime
 from email import message
 import logging
 from tkinter import E
+from tokenize import group
 from turtle import down
 from typing import Any, Tuple, Callable, Awaitable, Optional
 from jmcomic import JmAlbumDetail
@@ -45,13 +46,13 @@ class DownloadFinishedEventHandler(EventHandler):
         logger.debug(f"DownloadFinishedEventHandler received event.data: {event.data}")
         
         # Ensure event.data is a tuple and contains expected elements
-        if not isinstance(event.data, tuple) or len(event.data) != 2:
+        if not isinstance(event.data, Tuple) or len(event.data) != 2:
             logger.error(f"Invalid event.data format for DownloadFinishedEvent: {event.data}")
             await self.bot.send_group_message(f"下载完成事件处理失败：事件数据格式不正确。", str(event.data[1]) if isinstance(event.data, tuple) and len(event.data) > 1 else "未知群组")
             return
 
-        album_detail, group_id = event.data
-        
+        album_detail, message = event.data
+        group_id = message.group_id
         if album_detail: # Check if album_detail is not None
             logger.debug(f"Album detail is not None. album_detail.authoroname: {album_detail.authoroname}, album_detail.id: {album_detail.id}")
             await self.bot.send_group_message(f"专辑：{album_detail.authoroname} (ID: {album_detail.id})下载完成", str(group_id))
@@ -125,7 +126,12 @@ class DownloadRequestEventHandler(EventHandler):
                 logger.error(f"数据库连接中断: {e}")
                 await self.bot.send_group_message(f"数据库连接中断!", str(group_id))
                 album_info = None
-            await self.bot.send_group_message(f"{album_detail.name}\n共{album_detail.page_count}页\ntag：{album_detail.tags}\n由{album_info['first_downloader_id'] if album_info else '未知'}", str(group_id))
+            try:
+                user_name = await self.database.get_username(album_info['first_downloader_id']) if album_info else '未知'
+            except ConnectionError as e:
+                logger.error(f"数据库连接中断: {e}")
+                await self.bot.send_group_message(f"数据库连接中断!", str(group_id))
+            await self.bot.send_group_message(f"{album_detail.name}\n共{album_detail.page_count}页\ntag：{album_detail.tags}\n由{user_name}下载", str(group_id))
             #发送下载完成事件
             event_data = DownloadFinishedEvent("DOWNLOAD_FINISHED_EVENT", (album_detail, message))
             await self.event_queue.put_event(event_data)
@@ -141,6 +147,7 @@ class DownloadRequestEventHandler(EventHandler):
             logger.debug(f"JmDownloader().get_album_detail({album_id}) returned: {album_detail}")            
             logger.info(f"专辑 {album_id} 详情获取成功: {album_detail.name}")
             #发送记录下载事件
+            logger.info("发送记录下载事件")
             await self.event_queue.put_event(Event("RECORD_DOWNLOAD_EVENT", (album_detail, message)))
             await self.bot.send_group_message(f"{album_detail.name}\n共{album_detail.page_count}页\ntag：{album_detail.tags}", str(group_id))
             #下载本子
@@ -150,6 +157,8 @@ class DownloadRequestEventHandler(EventHandler):
                 logger.error(f"下载专辑 {album_id} 失败: {str(e)}", exc_info=True)
                 await self.bot.send_group_message(f"下载专辑 {album_id} 失败：{str(e)}", str(group_id))
             logger.info(f"专辑 {album_id} 下载完成.")
+            event_data = DownloadFinishedEvent("DOWNLOAD_FINISHED_EVENT", (album_detail, message))
+            await self.event_queue.put_event(event_data)
 
         
         # # Only create and put the event if album_detail was successfully obtained
@@ -187,4 +196,5 @@ class RecordDownloadEventHandler(EventHandler):
         # Record the download event
         await self.database.add_download(album_id, downloader_id, download_time)
 
+        await self.database.add_user(downloader_id, message.sender.nickname)
         logger.info(f"Successfully recorded download for album '{album_name}' by user {downloader_id}")

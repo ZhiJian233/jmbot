@@ -1,3 +1,4 @@
+from email import message
 import logging
 from event_core import EventQueue
 import event
@@ -59,7 +60,7 @@ async def main():
     logging.basicConfig(
         level=logging.DEBUG,
         format='%(asctime)s[%(name)s]-[%(levelname)s] %(message)s',
-        handlers=[logging.StreamHandler(), logging.FileHandler('jm_bot.log')]
+        handlers=[logging.StreamHandler(), logging.FileHandler('jm_bot.log', encoding='utf-8')]
     )
     logger = logging.getLogger(__name__)
     
@@ -81,7 +82,8 @@ async def main():
         # Initialize database
         db = Database()
         await db.connect()
-
+        
+        message_event_handler = event.MessageEventHandler(main_event_queue, bot)
         download_request_handler = event.DownloadRequestEventHandler(main_event_queue, bot, db)
         download_finished_handler = event.DownloadFinishedEventHandler(main_event_queue, bot, db)
         record_download_handler = event.RecordDownloadEventHandler(main_event_queue, db)
