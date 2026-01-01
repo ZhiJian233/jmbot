@@ -12,6 +12,7 @@ import jm
 from qq import *
 from typing import Union
 from asyncio import Queue
+from database import Database
 
 # class MessageHandler(event.EventHandler):
 #     def __init__(self, event_queue: event.EventQueue, queue: asyncio.Queue, jmoption: jmcomic.JmOption, bot: QQBot, loop: asyncio.AbstractEventLoop):
@@ -76,11 +77,20 @@ async def main():
         loop = asyncio.get_running_loop()
         main_event_queue = EventQueue(loop)
         bot = QQBot(ws, main_event_queue, loop)
-        download_request_handler = event.DownloadRequestEventHandler(main_event_queue, bot)
-        download_finished_handler = event.DownloadFinishedEventHandler(main_event_queue, bot)
+
+        # Initialize database
+        db = Database()
+        await db.connect()
+
+        download_request_handler = event.DownloadRequestEventHandler(main_event_queue, bot, db)
+        download_finished_handler = event.DownloadFinishedEventHandler(main_event_queue, bot, db)
+        record_download_handler = event.RecordDownloadEventHandler(main_event_queue, db)
         
         logger.info("初始化完成 开始运行")
-        # Keep the connection alive
-        await asyncio.Future()  # Run forever
+        try:
+            # Keep the connection alive
+            await asyncio.Future()  # Run forever
+        finally:
+            await db.close()
 
 asyncio.run(main())

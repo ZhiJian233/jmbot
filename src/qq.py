@@ -9,7 +9,7 @@ from typing import LiteralString, Union, Dict, List, Optional, Literal, Annotate
 from event_core import EventQueue, Event
 import event
 import file_utils
-from pydantic import BaseModel, Field
+from message_types import Message, GroupMessage, PrivateMessage
 from jmcomic import JmAlbumDetail
 import time
 import datetime
@@ -18,40 +18,6 @@ import logging
 
 
 logger: logging.Logger = logging.getLogger(__name__)
-
-class Sender(BaseModel):
-    user_id : int
-    nickname : str
-
-class GroupSender(Sender):
-    card: str
-    role: str
-
-
-class BaseEvent(BaseModel):
-    post_type: str
-    time: int
-
-class MessageSegment(BaseModel):
-    type: str
-    data: Dict[str, Any]
-
-class MessageEvent(BaseEvent):
-    post_type: Literal["message"]
-    user_id: int
-    message: List[MessageSegment]
-    raw_message: str
-                             
-class GroupMessageEvent(MessageEvent):
-    message_type: Literal["group"]
-    group_id: int
-    sender: GroupSender
-
-class PrivateMessageEvent(MessageEvent):
-    message_type: Literal["private"]
-    sender: Sender
-
-Message = Annotated[Union[PrivateMessageEvent,GroupMessageEvent],Field(discriminator='message_type')]
 
 class QQBot:
     def __init__(self, ws:websockets.ClientConnection, event_queue: EventQueue, loop :asyncio.AbstractEventLoop):
@@ -66,9 +32,9 @@ class QQBot:
         try:
             data = json.loads(json_str)
             if data.get("message_type") == "group":
-                return GroupMessageEvent.model_validate(data)
+                return GroupMessage.model_validate(data)
             elif data.get("message_type") == "private":
-                return PrivateMessageEvent.model_validate(data)
+                return PrivateMessage.model_validate(data)
             else:
                 raise ValueError(f"Unknown message type: {json_str}")
         except Exception as e:
@@ -76,14 +42,14 @@ class QQBot:
         
     @staticmethod
     def is_group_message(message: Message) -> bool:
-        if isinstance(message, GroupMessageEvent):
+        if isinstance(message, GroupMessage):
             return True
         else:
             return False
         
     @staticmethod
     def is_private_message(message: Message) -> bool:
-        if isinstance(message, PrivateMessageEvent):
+        if isinstance(message, PrivateMessage):
             return True
         else:
             return False
@@ -94,6 +60,7 @@ class QQBot:
             if message_content.type != "text":
                 return False
         return True
+    
     @staticmethod
     def get_message_text_content(message: Message) -> Optional[str]:
         content :str =""
@@ -101,8 +68,6 @@ class QQBot:
             if message_content.type == "text":
                 content = content + message_content.data["text"]
         return content
-
-
 
     async def send_group_message(self, message_to_send: str, group_id: str) -> None:
         if message_to_send is None:
@@ -157,10 +122,13 @@ class QQBot:
                 "source": title}
         return data
         
+    
     async def send_forward_photos(self, group_id:str,albums: JmAlbumDetail) -> None:
         content = []
         jmpath = os.environ['JMBOT_PATH']
+
         photos = file_utils.list_files_iter(f"{jmpath}/albums/{albums.id}")
+
         count = 0
         vol = 1
         async for photo in photos :
@@ -197,6 +165,7 @@ class QQBot:
         #forward_msg_list.append(self.__make_forward_msg_content(content, f"vol {vol} {albums.name}", albums.author))
         asyncio.create_task(self.send_forward_msg(group_id, content, f"vol.{vol} {albums.name}", f"{albums.author}@{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"))
         
+
     async def receive_message(self) -> None:
         while True:
             message = None  # Initialize message to None

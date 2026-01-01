@@ -6,3 +6,4 @@ options/*_option.yml
 *venv*/
 *.log
 .*
+data/
