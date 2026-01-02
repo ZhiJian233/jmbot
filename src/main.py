@@ -87,6 +87,7 @@ async def main():
         download_request_handler = event.DownloadRequestEventHandler(main_event_queue, bot, db)
         download_finished_handler = event.DownloadFinishedEventHandler(main_event_queue, bot, db)
         record_download_handler = event.RecordDownloadEventHandler(main_event_queue, db)
+        command_handler = event.CommandHandler(main_event_queue, bot, db)
         
         logger.info("初始化完成 开始运行")
         try:

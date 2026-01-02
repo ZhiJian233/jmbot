@@ -53,12 +53,33 @@ class Database:
                 PRIMARY KEY (user_id)
             )
         """)
+        # 新增tags表
+        await self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                created_time TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # 新增album_tags关联表
+        await self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS album_tags (
+                album_id TEXT NOT NULL,
+                tag_id INTEGER NOT NULL,
+                FOREIGN KEY (album_id) REFERENCES albums (id) ON DELETE CASCADE,
+                FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE,
+                PRIMARY KEY (album_id, tag_id)
+            )
+        """)
+        # 创建索引提升查询性能
+        await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_album_tags_tag_id ON album_tags(tag_id)")
+        await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)")
         await self.conn.commit()
 
     async def add_album(self, album_detail: JmAlbumDetail, download_time: str, downloader_id: str):
         if not self.conn:
             raise ConnectionError("Database not connected.")
-        
+
         album_id = album_detail.id
         name = album_detail.name
         tags = ','.join(album_detail.tags) if album_detail.tags else ''
@@ -93,6 +114,31 @@ class Database:
                 "INSERT INTO albums (id, name, tags, first_download_time, first_downloader_id, detail_json) VALUES (?, ?, ?, ?, ?, ?)",
                 (album_id, name, tags, download_time, downloader_id, detail_json)
             )
+
+            # 插入tag关系
+            if album_detail.tags:
+                for tag_name in album_detail.tags:
+                    # 获取或创建tag
+                    cursor = await self.conn.execute(
+                        "INSERT OR IGNORE INTO tags (name) VALUES (?)",
+                        (tag_name,)
+                    )
+                    # 获取tag_id
+                    cursor = await self.conn.execute(
+                        "SELECT id FROM tags WHERE name = ?",
+                        (tag_name,)
+                    )
+                    tag_row = await cursor.fetchone()
+                    await cursor.close()
+
+                    if tag_row:
+                        tag_id = tag_row[0]
+                        # 插入关联关系
+                        await self.conn.execute(
+                            "INSERT OR IGNORE INTO album_tags (album_id, tag_id) VALUES (?, ?)",
+                            (album_id, tag_id)
+                        )
+
             await self.conn.commit()
             return True
         return False # 专辑已存在
@@ -217,6 +263,59 @@ class Database:
         await cursor.close()
         return result[0] if result else None
 
+    async def get_albums_by_tag(self, tag_name: str) -> list[dict]:
+        """根据tag名称查询专辑列表"""
+        if not self.conn:
+            raise ConnectionError("Database not connected.")
+
+        cursor = await self.conn.execute("""
+            SELECT a.id, a.name, a.first_download_time, a.first_downloader_id
+            FROM albums a
+            JOIN album_tags at ON a.id = at.album_id
+            JOIN tags t ON at.tag_id = t.id
+            WHERE t.name = ?
+            ORDER BY a.first_download_time DESC
+        """, (tag_name,))
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [
+            {"id": row[0], "name": row[1], "first_download_time": row[2], "first_downloader_id": row[3]}
+            for row in rows
+        ]
+
+    async def get_tag_statistics(self, days: Optional[int] = None) -> list[dict]:
+        """获取tag使用统计，可选择时间范围（最近N天）"""
+        if not self.conn:
+            raise ConnectionError("Database not connected.")
+
+        if days is None:
+            # 统计所有时间的tag
+            cursor = await self.conn.execute("""
+                SELECT t.name, COUNT(at.album_id) as count
+                FROM tags t
+                LEFT JOIN album_tags at ON t.id = at.tag_id
+                GROUP BY t.id, t.name
+                ORDER BY count DESC
+            """)
+        else:
+            # 统计指定时间范围内的tag
+            cursor = await self.conn.execute("""
+                SELECT t.name, COUNT(at.album_id) as count
+                FROM tags t
+                LEFT JOIN album_tags at ON t.id = at.tag_id
+                LEFT JOIN albums a ON at.album_id = a.id
+                WHERE a.first_download_time >= datetime('now', '-{} days')
+                GROUP BY t.id, t.name
+                ORDER BY count DESC
+            """.format(days))
+
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [
+            {"tag_name": row[0], "count": row[1]}
+            for row in rows
+        ]
+
 
 # 示例用法 (仅用于测试，实际应用中应通过其他模块调用)
 async def main():
@@ -279,6 +378,18 @@ async def main():
     print("\nDownloads by user1:")
     for download in await db.get_downloads_by_downloader('user1'):
         print(download)
+
+    print("\nAlbums with tag 'tagA':")
+    for album in await db.get_albums_by_tag('tagA'):
+        print(album)
+
+    print("\nTag statistics (all time):")
+    for stat in await db.get_tag_statistics():
+        print(stat)
+
+    print("\nTag statistics (last 7 days):")
+    for stat in await db.get_tag_statistics(days=7):
+        print(stat)
 
     await db.close()
 

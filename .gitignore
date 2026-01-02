@@ -7,3 +7,7 @@ options/*_option.yml
 *.log
 .*
 data/
+plans/event_improvement_plan.md
+requirements.txt
+tests/__pycache__/test_event.cpython-313-pytest-9.0.2.pyc
+tests/test_event.py
