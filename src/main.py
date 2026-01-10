@@ -83,7 +83,9 @@ async def main():
         db = Database()
         await db.connect()
         
-        message_event_handler = event.MessageEventHandler(main_event_queue, bot)
+        event_router = event.EventRouter(main_event_queue, bot)
+        heartbeat_handler = event.HeartbeatEventHandler(main_event_queue)
+        message_dispatcher = event.MessageDispatcher(main_event_queue)
         download_request_handler = event.DownloadRequestEventHandler(main_event_queue, bot, db)
         download_finished_handler = event.DownloadFinishedEventHandler(main_event_queue, bot, db)
         record_download_handler = event.RecordDownloadEventHandler(main_event_queue, db)

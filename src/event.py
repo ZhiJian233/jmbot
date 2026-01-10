@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import datetime
+import json
 import logging
 import re
 from typing import Any, Tuple, Callable, Awaitable, Optional
@@ -25,17 +27,70 @@ EVENT_TYPE_GROUP_MESSAGE = "GROUP_MESSAGE_EVENT"
 EVENT_TYPE_PRIVATE_MESSAGE = "PRIVATE_MESSAGE_EVENT"
 EVENT_TYPE_DOWNLOAD_FINISHED = "DOWNLOAD_FINISHED_EVENT"
 EVENT_TYPE_RECORD_DOWNLOAD = "RECORD_DOWNLOAD_EVENT"
+EVENT_TYPE_HEARTBEAT = "HEARTBEAT_EVENT"
 
 
-class MessageEventHandler(EventHandler):
-    """消息事件处理器
-    
-    负责解析原始消息事件并将其分发到相应的群组或私聊消息处理器。
+class HeartbeatEventHandler(EventHandler):
+    """心跳事件处理器
+
+    负责处理心跳事件，静默消费而不记录错误。
     """
-    
+
+    def __init__(self, event_queue: EventQueue) -> None:
+        """初始化心跳事件处理器
+
+        Args:
+            event_queue: 事件队列
+        """
+        super().__init__(event_queue, EVENT_TYPE_HEARTBEAT)
+
+    async def handle_event(self, event: Event) -> None:
+        """处理心跳事件
+
+        Args:
+            event: 心跳事件（静默消费）
+        """
+        # 心跳事件不需要特殊处理，只需要消费掉即可
+        pass
+
+
+class MessageDispatcher(EventHandler):
+    """消息分发器
+
+    负责将解析后的消息事件分发到相应的群组或私聊消息处理器。
+    """
+
+    def __init__(self, event_queue: EventQueue) -> None:
+        """初始化消息分发器
+
+        Args:
+            event_queue: 事件队列
+        """
+        super().__init__(event_queue, EVENT_TYPE_MESSAGE)
+
+    async def handle_event(self, event: Event) -> None:
+        """处理消息事件
+
+        Args:
+            event: 待处理的消息事件
+        """
+        message = event.data
+
+        if QQBot.is_group_message(message):
+            await self.event_queue.put_event(Event(EVENT_TYPE_GROUP_MESSAGE, message))
+        elif QQBot.is_private_message(message):
+            await self.event_queue.put_event(Event(EVENT_TYPE_PRIVATE_MESSAGE, message))
+
+
+class EventRouter(EventHandler):
+    """事件路由器
+
+    负责根据事件类型将原始事件路由到相应的处理器。
+    """
+
     def __init__(self, event_queue: EventQueue, bot: QQBot) -> None:
-        """初始化消息事件处理器
-        
+        """初始化事件路由器
+
         Args:
             event_queue: 事件队列
             bot: QQ机器人实例
@@ -45,21 +100,35 @@ class MessageEventHandler(EventHandler):
         super().__init__(event_queue, EVENT_TYPE_MESSAGE)
 
     async def handle_event(self, event: Event) -> None:
-        """处理消息事件
-        
+        """处理事件并路由到相应处理器
+
         Args:
             event: 待处理的事件
         """
-        try:
-            message = QQBot.parse_message(event.data)
-        except Exception as e:
-            logger.error(f"解析消息失败，非消息事件: {e}")
+        event_data = event.data
+
+        # 检查是否为字典类型的事件数据
+        if not isinstance(event_data, dict):
+            logger.error(f"事件数据格式无效: {type(event_data)}")
             return
-            
-        if QQBot.is_group_message(message):
-            await self.event_queue.put_event(Event(EVENT_TYPE_GROUP_MESSAGE, message))
-        elif QQBot.is_private_message(message):
-            await self.event_queue.put_event(Event(EVENT_TYPE_PRIVATE_MESSAGE, message))
+
+        post_type = event_data.get('post_type')
+
+        if post_type == 'message':
+            # 消息事件，解析并分发
+            try:
+                message_json = json.dumps(event_data)
+                message = QQBot.parse_message(message_json)
+                await self.event_queue.put_event(Event(EVENT_TYPE_MESSAGE, message))
+            except Exception as e:
+                logger.error(f"解析消息失败: {e}")
+                return
+        elif post_type == 'meta_event':
+            # 元事件（如心跳），分发到心跳处理器
+            await self.event_queue.put_event(Event(EVENT_TYPE_HEARTBEAT, event_data))
+        else:
+            # 其他未知事件类型，记录但不处理
+            logger.warning(f"收到未知事件类型: {post_type}")
 
 
 class DownloadFinishedEventHandler(EventHandler):
@@ -410,6 +479,45 @@ class RecordDownloadEventHandler(EventHandler):
             logger.error(f"记录下载失败: {e}", exc_info=True)
 
 
+class BaseCommand(abc.ABC):
+    """命令基类
+
+    所有命令类都必须继承此类，并实现 can_handle 和 execute 方法。
+    """
+
+    def __init__(self, bot: QQBot, database: Database):
+        """初始化命令
+
+        Args:
+            bot: QQ机器人实例
+            database: 数据库实例
+        """
+        self.bot = bot
+        self.database = database
+
+    @abc.abstractmethod
+    def can_handle(self, message_text: str) -> bool:
+        """判断是否可以处理该消息文本
+
+        Args:
+            message_text: 消息文本内容
+
+        Returns:
+            如果可以处理则返回True，否则返回False
+        """
+        pass
+
+    @abc.abstractmethod
+    async def execute(self, message: GroupMessage, group_id: str) -> None:
+        """执行命令
+
+        Args:
+            message: 群组消息
+            group_id: 群组ID
+        """
+        pass
+
+
 class CommandHandler(EventHandler):
     """命令处理器
 
@@ -427,10 +535,10 @@ class CommandHandler(EventHandler):
         self.event_queue = event_queue
         self.bot = bot
         self.database = database
-        self.commands = {
-            re.compile(r"^tag$"): self._handle_tag_all,
-            re.compile(r"^tag (.+)$"): self._handle_tag_specific,
-        }
+        self.commands = [
+            TagAllCommand(bot, database),
+            TagSpecificCommand(bot, database),
+        ]
         super().__init__(event_queue, EVENT_TYPE_GROUP_MESSAGE)
 
     def can_handle(self, event: Event) -> bool:
@@ -446,8 +554,8 @@ class CommandHandler(EventHandler):
         if QQBot.is_pure_text_message(message):
             text = QQBot.get_message_text_content(message)
             if text:
-                for pattern in self.commands.keys():
-                    if pattern.match(text.strip()):
+                for command in self.commands:
+                    if command.can_handle(text.strip()):
                         return True
         return False
 
@@ -462,17 +570,32 @@ class CommandHandler(EventHandler):
         text = text_content.strip() if text_content else ""
         group_id = str(message.group_id)
 
-        for pattern, handler in self.commands.items():
-            match = pattern.match(text)
-            if match:
-                await handler(match, group_id)
+        for command in self.commands:
+            if command.can_handle(text):
+                await command.execute(message, group_id)
                 break
 
-    async def _handle_tag_all(self, match: re.Match, group_id: str) -> None:
-        """处理显示所有tag统计的命令
+
+
+class TagAllCommand(BaseCommand):
+    """显示所有tag统计的命令"""
+
+    def can_handle(self, message_text: str) -> bool:
+        """判断是否可以处理该消息文本
 
         Args:
-            match: 正则匹配对象
+            message_text: 消息文本内容
+
+        Returns:
+            如果是 'tag' 命令则返回True，否则返回False
+        """
+        return message_text.strip() == "tag"
+
+    async def execute(self, message: GroupMessage, group_id: str) -> None:
+        """执行显示所有tag统计的命令
+
+        Args:
+            message: 群组消息
             group_id: 群组ID
         """
         try:
@@ -493,13 +616,34 @@ class CommandHandler(EventHandler):
             logger.error(f"获取tag统计失败: {e}", exc_info=True)
             await self.bot.send_group_message("获取tag统计失败", group_id)
 
-    async def _handle_tag_specific(self, match: re.Match, group_id: str) -> None:
-        """处理显示特定tag专辑的命令
+
+class TagSpecificCommand(BaseCommand):
+    """显示特定tag专辑的命令"""
+
+    def can_handle(self, message_text: str) -> bool:
+        """判断是否可以处理该消息文本
 
         Args:
-            match: 正则匹配对象
+            message_text: 消息文本内容
+
+        Returns:
+            如果是 'tag <name>' 命令则返回True，否则返回False
+        """
+        return re.match(r"^tag .+$", message_text.strip()) is not None
+
+    async def execute(self, message: GroupMessage, group_id: str) -> None:
+        """执行显示特定tag专辑的命令
+
+        Args:
+            message: 群组消息
             group_id: 群组ID
         """
+        text_content = QQBot.get_message_text_content(message)
+        text = text_content.strip() if text_content else ""
+        match = re.match(r"^tag (.+)$", text)
+        if not match:
+            return
+
         tag_name = match.group(1)
         try:
             albums = await self.database.get_albums_by_tag(tag_name)
