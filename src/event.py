@@ -538,6 +538,8 @@ class CommandHandler(EventHandler):
         self.commands = [
             TagAllCommand(bot, database),
             TagSpecificCommand(bot, database),
+            TagManagementCommand(bot, database),
+            AlbumTagQueryCommand(bot, database),
         ]
         super().__init__(event_queue, EVENT_TYPE_GROUP_MESSAGE)
 
@@ -666,3 +668,114 @@ class TagSpecificCommand(BaseCommand):
         except Exception as e:
             logger.error(f"获取tag '{tag_name}' 专辑失败: {e}", exc_info=True)
             await self.bot.send_group_message(f"获取tag '{tag_name}' 专辑失败", group_id)
+
+
+class TagManagementCommand(BaseCommand):
+    """管理专辑标签的命令"""
+
+    def can_handle(self, message_text: str) -> bool:
+        """判断是否可以处理该消息文本
+
+        Args:
+            message_text: 消息文本内容
+
+        Returns:
+            如果是 '<album_id> tag add/rm <tag>' 命令则返回True，否则返回False
+        """
+        return re.match(r"^\d+ tag (add|rm) .+$", message_text.strip()) is not None
+
+    async def execute(self, message: GroupMessage, group_id: str) -> None:
+        """执行标签管理命令
+
+        Args:
+            message: 群组消息
+            group_id: 群组ID
+        """
+        text_content = QQBot.get_message_text_content(message)
+        text = text_content.strip() if text_content else ""
+        match = re.match(r"^(\d+) tag (add|rm) (.+)$", text)
+        if not match:
+            return
+
+        album_id = match.group(1)
+        action = match.group(2)
+        tag_name = match.group(3).strip()
+
+        try:
+            # 检查专辑是否存在
+            album_exists = await self.database.is_album_exist(album_id)
+            if not album_exists:
+                await self.bot.send_group_message(f"专辑 {album_id} 不存在", group_id)
+                return
+
+            if action == "add":
+                success = await self.database.add_tag_to_album(album_id, tag_name)
+                if success:
+                    await self.bot.send_group_message(f"已为专辑 {album_id} 添加标签 '{tag_name}'", group_id)
+                else:
+                    await self.bot.send_group_message(f"为专辑 {album_id} 添加标签 '{tag_name}' 失败", group_id)
+            elif action == "rm":
+                success = await self.database.remove_tag_from_album(album_id, tag_name)
+                if success:
+                    await self.bot.send_group_message(f"已从专辑 {album_id} 移除标签 '{tag_name}'", group_id)
+                else:
+                    await self.bot.send_group_message(f"从专辑 {album_id} 移除标签 '{tag_name}' 失败", group_id)
+        except Exception as e:
+            logger.error(f"标签管理操作失败: {e}", exc_info=True)
+            await self.bot.send_group_message("标签管理操作失败", group_id)
+
+
+class AlbumTagQueryCommand(BaseCommand):
+    """查询专辑标签的命令"""
+
+    def can_handle(self, message_text: str) -> bool:
+        """判断是否可以处理该消息文本
+
+        Args:
+            message_text: 消息文本内容
+
+        Returns:
+            如果是 '<album_id> tag' 命令则返回True，否则返回False
+        """
+        return re.match(r"^\d+ tag$", message_text.strip()) is not None
+
+    async def execute(self, message: GroupMessage, group_id: str) -> None:
+        """执行查询专辑标签命令
+
+        Args:
+            message: 群组消息
+            group_id: 群组ID
+        """
+        text_content = QQBot.get_message_text_content(message)
+        text = text_content.strip() if text_content else ""
+        match = re.match(r"^(\d+) tag$", text)
+        if not match:
+            return
+
+        album_id = match.group(1)
+
+        try:
+            # 检查专辑是否存在
+            album_exists = await self.database.is_album_exist(album_id)
+            if not album_exists:
+                await self.bot.send_group_message(f"专辑 {album_id} 不存在", group_id)
+                return
+
+            # 获取专辑信息
+            album_info = await self.database.get_album_by_id(album_id)
+            if not album_info:
+                await self.bot.send_group_message(f"无法获取专辑 {album_id} 信息", group_id)
+                return
+
+            # 获取标签列表
+            tags = await self.database.get_tags_for_album(album_id)
+
+            if not tags:
+                await self.bot.send_group_message(f"专辑 {album_id} ({album_info['name']}) 暂无标签", group_id)
+            else:
+                tag_list = ", ".join(tags)
+                await self.bot.send_group_message(f"专辑 {album_id} ({album_info['name']}) 的标签：{tag_list}", group_id)
+
+        except Exception as e:
+            logger.error(f"查询专辑标签失败: {e}", exc_info=True)
+            await self.bot.send_group_message("查询专辑标签失败", group_id)

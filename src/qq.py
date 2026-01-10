@@ -106,7 +106,7 @@ class QQBot:
         }
         await self.ws.send(json.dumps(req))
 
-    def __make_forward_msg_content(self, content: list, title: str, subtitle: str) -> Dict:
+    def _make_forward_msg_content(self, content: list, title: str, subtitle: str) -> Dict:
         data = {
                 "type": "node",
                 "data": {
@@ -183,6 +183,10 @@ class QQBot:
             #     continue # Skip this message if parsing fails
             
             if msg: # Only process if message was successfully parsed
-                event_data = Event("MESSAGE_EVENT", msg)
-                logger.info(msg)
-                await self.event_queue.put_event(event_data)
+                try:
+                    event_payload = json.loads(msg)
+                    event_data = Event("MESSAGE_EVENT", event_payload)
+                    logger.info(msg)
+                    await self.event_queue.put_event(event_data)
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to decode JSON from message: {msg}")
