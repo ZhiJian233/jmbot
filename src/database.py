@@ -15,6 +15,7 @@ class Database:
     async def connect(self):
         if self.conn is None:
             self.conn = await aiosqlite.connect(self.db_path)
+            await self.conn.execute("PRAGMA foreign_keys = ON")
             await self._create_tables()
 
     async def close(self):
@@ -396,10 +397,10 @@ class Database:
                 FROM tags t
                 LEFT JOIN album_tags at ON t.id = at.tag_id
                 LEFT JOIN albums a ON at.album_id = a.id
-                WHERE a.first_download_time >= datetime('now', '-{} days')
+                WHERE a.first_download_time >= datetime('now', '-' || ? || ' days')
                 GROUP BY t.id, t.name
                 ORDER BY count DESC
-            """.format(days))
+            """, (str(days),))
 
         rows = await cursor.fetchall()
         await cursor.close()

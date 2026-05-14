@@ -99,19 +99,12 @@ class EventRouter(EventHandler):
         self.bot = bot
         super().__init__(event_queue, EVENT_TYPE_MESSAGE)
 
+    def can_handle(self, event: Event) -> bool:
+        # 只处理原始字典事件，避免重复处理已解析的 Message 对象
+        return isinstance(event.data, dict)
+
     async def handle_event(self, event: Event) -> None:
-        """处理事件并路由到相应处理器
-
-        Args:
-            event: 待处理的事件
-        """
         event_data = event.data
-
-        # 检查是否为字典类型的事件数据
-        if not isinstance(event_data, dict):
-            logger.error(f"事件数据格式无效: {type(event_data)}")
-            return
-
         post_type = event_data.get('post_type')
 
         if post_type == 'message':
@@ -307,22 +300,18 @@ class DownloadRequestEventHandler(EventHandler):
             group_id: 群组ID
         """
         logger.info(f"专辑 {album_id} 已存在于数据库中: {album_detail.name}")
-        
+
         # 获取下载者信息
         user_name = await self._get_downloader_name(album_id, group_id)
-        
+
         # 发送专辑信息
         await self.bot.send_group_message(
             f"{album_detail.name}\n共{album_detail.page_count}页\ntag：{album_detail.tags}\n由{user_name}下载",
             group_id
         )
-        
-        # 发送下载完成事件
-        event_data = DownloadFinishedEvent(
-            EVENT_TYPE_DOWNLOAD_FINISHED, 
-            (album_detail, message)
-        )
-        await self.event_queue.put_event(event_data)
+
+        # 直接发送照片（重编码绕过 QQ 重复图片拦截）
+        await self.bot.send_forward_photos(group_id, album_detail, reprocess=True)
 
     async def _get_downloader_name(self, album_id: str, group_id: str) -> str:
         """获取下载者名称
@@ -393,22 +382,23 @@ class DownloadRequestEventHandler(EventHandler):
         )
         
         # 下载专辑
-        await self._download_album(downloader, album_id, group_id)
-        
-        # 发送下载完成事件
-        event_data = DownloadFinishedEvent(
-            EVENT_TYPE_DOWNLOAD_FINISHED, 
-            (album_detail, message)
-        )
-        await self.event_queue.put_event(event_data)
+        download_success = await self._download_album(downloader, album_id, group_id)
+
+        # 只有下载成功才发送下载完成事件
+        if download_success:
+            event_data = DownloadFinishedEvent(
+                EVENT_TYPE_DOWNLOAD_FINISHED,
+                (album_detail, message)
+            )
+            await self.event_queue.put_event(event_data)
 
     async def _download_album(
         self,
         downloader: JmDownloader,
         album_id: str,
         group_id: str
-    ) -> None:
-        """下载专辑
+    ) -> bool:
+        """下载专辑，返回 True 表示成功，False 表示失败
         
         Args:
             downloader: 下载器实例
@@ -418,12 +408,14 @@ class DownloadRequestEventHandler(EventHandler):
         try:
             await downloader.download_album(album_id)
             logger.info(f"专辑 {album_id} 下载完成")
+            return True
         except Exception as e:
             logger.error(f"下载专辑 {album_id} 失败: {str(e)}", exc_info=True)
             await self.bot.send_group_message(
                 f"下载专辑 {album_id} 失败：{str(e)}",
                 group_id
             )
+            return False
 
 
 class RecordDownloadEventHandler(EventHandler):
@@ -540,6 +532,7 @@ class CommandHandler(EventHandler):
             TagSpecificCommand(bot, database),
             TagManagementCommand(bot, database),
             AlbumTagQueryCommand(bot, database),
+            UserDownloadCountCommand(bot, database),
         ]
         super().__init__(event_queue, EVENT_TYPE_GROUP_MESSAGE)
 
@@ -550,15 +543,14 @@ class CommandHandler(EventHandler):
             event: 待判断的事件
 
         Returns:
-            如果消息是纯文本且匹配命令则返回True，否则返回False
+            如果消息文本匹配命令则返回True，否则返回False
         """
         message: GroupMessage = event.data
-        if QQBot.is_pure_text_message(message):
-            text = QQBot.get_message_text_content(message)
-            if text:
-                for command in self.commands:
-                    if command.can_handle(text.strip()):
-                        return True
+        text = QQBot.get_message_text_content(message)
+        if text:
+            for command in self.commands:
+                if command.can_handle(text.strip()):
+                    return True
         return False
 
     async def handle_event(self, event: Event) -> None:
@@ -594,26 +586,14 @@ class TagAllCommand(BaseCommand):
         return message_text.strip() == "tag"
 
     async def execute(self, message: GroupMessage, group_id: str) -> None:
-        """执行显示所有tag统计的命令
-
-        Args:
-            message: 群组消息
-            group_id: 群组ID
-        """
         try:
             stats = await self.database.get_tag_statistics()
             if not stats:
                 await self.bot.send_group_message("暂无tag统计数据", group_id)
                 return
 
-            message_lines = ["所有tag统计："]
-            for stat in stats[:20]:  # 限制显示前20个
-                message_lines.append(f"{stat['tag_name']}: {stat['count']} 个专辑")
-
-            if len(stats) > 20:
-                message_lines.append(f"... 还有 {len(stats) - 20} 个tag")
-
-            await self.bot.send_group_message("\n".join(message_lines), group_id)
+            lines = [f"{stat['tag_name']}: {stat['count']} 个专辑" for stat in stats[:100]]
+            await self.bot.send_forward_text(group_id, "\n".join(lines), "所有tag统计")
         except Exception as e:
             logger.error(f"获取tag统计失败: {e}", exc_info=True)
             await self.bot.send_group_message("获取tag统计失败", group_id)
@@ -634,12 +614,6 @@ class TagSpecificCommand(BaseCommand):
         return re.match(r"^tag .+$", message_text.strip()) is not None
 
     async def execute(self, message: GroupMessage, group_id: str) -> None:
-        """执行显示特定tag专辑的命令
-
-        Args:
-            message: 群组消息
-            group_id: 群组ID
-        """
         text_content = QQBot.get_message_text_content(message)
         text = text_content.strip() if text_content else ""
         match = re.match(r"^tag (.+)$", text)
@@ -653,18 +627,11 @@ class TagSpecificCommand(BaseCommand):
                 await self.bot.send_group_message(f"tag '{tag_name}' 下暂无专辑", group_id)
                 return
 
-            # 获取tag统计
-            stats = await self.database.get_tag_statistics()
-            tag_count = next((stat['count'] for stat in stats if stat['tag_name'] == tag_name), 0)
-
-            message_lines = [f"tag '{tag_name}' 共有 {tag_count} 个专辑："]
-            for album in albums[:10]:  # 限制显示前10个
-                message_lines.append(f"ID: {album['id']} - {album['name']}")
-
-            if len(albums) > 10:
-                message_lines.append(f"... 还有 {len(albums) - 10} 个专辑")
-
-            await self.bot.send_group_message("\n".join(message_lines), group_id)
+            lines = [f"ID: {a['id']} - {a['name']}" for a in albums]
+            await self.bot.send_forward_text(
+                group_id, "\n".join(lines),
+                f"tag '{tag_name}' 共有 {len(albums)} 个专辑"
+            )
         except Exception as e:
             logger.error(f"获取tag '{tag_name}' 专辑失败: {e}", exc_info=True)
             await self.bot.send_group_message(f"获取tag '{tag_name}' 专辑失败", group_id)
@@ -779,3 +746,55 @@ class AlbumTagQueryCommand(BaseCommand):
         except Exception as e:
             logger.error(f"查询专辑标签失败: {e}", exc_info=True)
             await self.bot.send_group_message("查询专辑标签失败", group_id)
+
+
+class UserDownloadCountCommand(BaseCommand):
+    """查询用户累积下载数的命令，支持 @ 指定目标，默认统计全群"""
+
+    def can_handle(self, message_text: str) -> bool:
+        return message_text.strip().startswith("下载统计")
+
+    async def execute(self, message: GroupMessage, group_id: str) -> None:
+        at_targets = QQBot.get_at_targets(message)
+        if at_targets:
+            await self._show_single_user(at_targets[0], group_id)
+        else:
+            await self._show_all_members(group_id)
+
+    async def _show_single_user(self, target_id: str, group_id: str) -> None:
+        try:
+            count = await self.database.get_download_count(target_id)
+            username = await self.database.get_username(target_id)
+            display_name = username or target_id
+            await self.bot.send_group_message(
+                f"{display_name} 累积下载 {count} 次",
+                group_id
+            )
+        except Exception as e:
+            logger.error(f"查询下载统计失败: {e}", exc_info=True)
+            await self.bot.send_group_message("查询下载统计失败", group_id)
+
+    async def _show_all_members(self, group_id: str) -> None:
+        try:
+            members = await self.bot.get_group_member_list(group_id)
+        except Exception as e:
+            logger.error(f"获取群成员列表失败: {e}", exc_info=True)
+            await self.bot.send_group_message("获取群成员列表失败", group_id)
+            return
+
+        stats = []
+        for member in members:
+            user_id = str(member["user_id"])
+            count = await self.database.get_download_count(user_id)
+            if count > 0:
+                name = member.get("card") or member.get("nickname") or user_id
+                stats.append((name, count))
+
+        if not stats:
+            await self.bot.send_group_message("群内暂无下载记录", group_id)
+            return
+
+        stats.sort(key=lambda x: x[1], reverse=True)
+
+        lines = [f"{name}：{count} 次" for name, count in stats]
+        await self.bot.send_forward_text(group_id, "\n".join(lines), "群内下载统计")

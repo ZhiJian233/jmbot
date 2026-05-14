@@ -1,8 +1,6 @@
-from email import message
 import logging
 from event_core import EventQueue
 import event
-from calendar import c
 import jmcomic
 import requests
 import json
