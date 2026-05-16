@@ -156,6 +156,129 @@ class QQBot:
         }
         return await self.call_api("send_forward_msg", data, timeout=300)
 
+    async def test_forward_single_node(self, group_id: str) -> dict:
+        """测试：所有文本塞进一个 node（当前行为）"""
+        texts = [f"单节点消息 #{i}" for i in range(1, 6)]
+        node_content = [{"type": "text", "data": {"text": t}} for t in texts]
+        data = {
+            "group_id": f"{group_id}",
+            "message": [
+                {
+                    "type": "node",
+                    "data": {
+                        "user_id": 2377284392,
+                        "nickname": "麦麦",
+                        "content": node_content,
+                    }
+                }
+            ],
+            "news": [{"text": "单节点测试"}],
+            "prompt": "单节点测试",
+            "summary": "单节点测试",
+            "source": "单节点测试",
+        }
+        return await self.call_api("send_forward_msg", data, timeout=300)
+
+    async def test_forward_multi_nodes(self, group_id: str) -> dict:
+        """测试：每条文本一个独立 node"""
+        texts = [f"多节点消息 #{i}" for i in range(1, 6)]
+        nodes = []
+        for t in texts:
+            nodes.append({
+                "type": "node",
+                "data": {
+                    "user_id": 2377284392,
+                    "nickname": "麦麦",
+                    "content": [{"type": "text", "data": {"text": t}}],
+                }
+            })
+        data = {
+            "group_id": f"{group_id}",
+            "message": nodes,
+            "news": [{"text": "多节点测试"}],
+            "prompt": "多节点测试",
+            "summary": "多节点测试",
+            "source": "多节点测试",
+        }
+        return await self.call_api("send_forward_msg", data, timeout=300)
+
+    async def test_forward_grouped_nodes(self, group_id: str, per_node: int = 2) -> dict:
+        """测试：每 per_node 条文本一组，每组一个 node"""
+        texts = [f"分组节点消息 #{i}" for i in range(1, 7)]
+        nodes = []
+        for i in range(0, len(texts), per_node):
+            group = texts[i:i + per_node]
+            group_content = [{"type": "text", "data": {"text": t}} for t in group]
+            nodes.append({
+                "type": "node",
+                "data": {
+                    "user_id": 2377284392,
+                    "nickname": "麦麦",
+                    "content": group_content,
+                }
+            })
+        data = {
+            "group_id": f"{group_id}",
+            "message": nodes,
+            "news": [{"text": "分组节点测试"}],
+            "prompt": "分组节点测试",
+            "summary": "分组节点测试",
+            "source": "分组节点测试",
+        }
+        return await self.call_api("send_forward_msg", data, timeout=300)
+
+    async def send_forward_albums(self, group_id: str, albums: list[dict], tag_name: str) -> None:
+        """将专辑列表作为合并转发消息发送，每个专辑一个气泡"""
+        jmpath = os.environ['JMBOT_PATH']
+        nodes = []
+        for album in albums:
+            # 解析 detail_json
+            authors = ""
+            tags = ""
+            if album.get("detail_json"):
+                try:
+                    detail = json.loads(album["detail_json"])
+                    author_list = detail.get("authors", [])
+                    authors = ", ".join(author_list) if author_list else "未知"
+                    tag_list = detail.get("tags", [])
+                    tags = ", ".join(tag_list) if tag_list else ""
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            text_parts = [f"名称: {album['name']}", f"作者: {authors}"]
+            if tags:
+                text_parts.append(f"标签: {tags}")
+
+            content = [
+                {"type": "text", "data": {"text": "\n".join(text_parts)}}
+            ]
+
+            # 添加封面图
+            cover_path = f"{jmpath}/albums/{album['id']}/00001.jpg"
+            if os.path.exists(cover_path):
+                content.append(
+                    {"type": "image", "data": {"file": f"file:///{cover_path}"}}
+                )
+
+            nodes.append({
+                "type": "node",
+                "data": {
+                    "user_id": 2377284392,
+                    "nickname": "麦麦",
+                    "content": content,
+                }
+            })
+
+        data = {
+            "group_id": f"{group_id}",
+            "message": nodes,
+            "news": [{"text": tag_name}],
+            "prompt": tag_name,
+            "summary": tag_name,
+            "source": tag_name,
+        }
+        return await self.call_api("send_forward_msg", data, timeout=300)
+
     def _make_forward_msg_content(self, content: list, title: str, subtitle: str) -> Dict:
         data = {
                 "type": "node",
@@ -279,7 +402,7 @@ class QQBot:
         """同步：翻转单张图片到临时文件"""
         img = Image.open(path)
         img.load()
-        flipped = img.transpose(Image.FLIP_TOP_BOTTOM)
+        flipped = img.transpose(Image.ROTATE_180)
         tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
         flipped.save(tmp, format='JPEG', quality=95, optimize=False)
         tmp.close()
