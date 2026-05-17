@@ -287,7 +287,7 @@ class Database:
             raise ConnectionError("Database not connected.")
 
         cursor = await self.conn.execute("""
-            SELECT a.id, a.name, a.first_download_time, a.first_downloader_id
+            SELECT a.id, a.name, a.first_download_time, a.first_downloader_id, a.detail_json
             FROM albums a
             JOIN album_tags at ON a.id = at.album_id
             JOIN tags t ON at.tag_id = t.id
@@ -297,7 +297,7 @@ class Database:
         rows = await cursor.fetchall()
         await cursor.close()
         return [
-            {"id": row[0], "name": row[1], "first_download_time": row[2], "first_downloader_id": row[3]}
+            {"id": row[0], "name": row[1], "first_download_time": row[2], "first_downloader_id": row[3], "detail_json": row[4]}
             for row in rows
         ]
 

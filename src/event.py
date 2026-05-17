@@ -533,6 +533,7 @@ class CommandHandler(EventHandler):
             TagManagementCommand(bot, database),
             AlbumTagQueryCommand(bot, database),
             UserDownloadCountCommand(bot, database),
+            ForwardTestCommand(bot, database),
         ]
         super().__init__(event_queue, EVENT_TYPE_GROUP_MESSAGE)
 
@@ -592,7 +593,22 @@ class TagAllCommand(BaseCommand):
                 await self.bot.send_group_message("暂无tag统计数据", group_id)
                 return
 
-            lines = [f"{stat['tag_name']}: {stat['count']} 个专辑" for stat in stats[:100]]
+            # 计算显示宽度：CJK/全角=2，ASCII=1
+            import unicodedata
+            def disp_width(s):
+                w = 0
+                for c in s:
+                    ea = unicodedata.east_asian_width(c)
+                    w += 2 if ea in ('F', 'W') else 1
+                return w
+            max_w = max(disp_width(s['tag_name']) for s in stats[:100])
+            lines = []
+            for s in stats[:100]:
+                name = s['tag_name']
+                pad = max_w - disp_width(name)
+                # 全角空格补齐偶数部分，半角空格补齐奇数部分
+                padded = name + '　' * (pad // 2) + ' ' * (pad % 2)
+                lines.append(f"{padded}    {s['count']} 个专辑")
             await self.bot.send_forward_text(group_id, "\n".join(lines), "所有tag统计")
         except Exception as e:
             logger.error(f"获取tag统计失败: {e}", exc_info=True)
@@ -627,10 +643,8 @@ class TagSpecificCommand(BaseCommand):
                 await self.bot.send_group_message(f"tag '{tag_name}' 下暂无专辑", group_id)
                 return
 
-            lines = [f"ID: {a['id']} - {a['name']}" for a in albums]
-            await self.bot.send_forward_text(
-                group_id, "\n".join(lines),
-                f"tag '{tag_name}' 共有 {len(albums)} 个专辑"
+            await self.bot.send_forward_albums(
+                group_id, albums, f"tag '{tag_name}' 共有 {len(albums)} 个专辑"
             )
         except Exception as e:
             logger.error(f"获取tag '{tag_name}' 专辑失败: {e}", exc_info=True)
@@ -797,4 +811,26 @@ class UserDownloadCountCommand(BaseCommand):
         stats.sort(key=lambda x: x[1], reverse=True)
 
         lines = [f"{name}：{count} 次" for name, count in stats]
-        await self.bot.send_forward_text(group_id, "\n".join(lines), "群内下载统计")
+        await self.bot.send_group_message("\n".join(lines), group_id)
+
+
+class ForwardTestCommand(BaseCommand):
+    """测试合并转发消息的不同发送方式"""
+
+    def can_handle(self, message_text: str) -> bool:
+        return message_text.strip() == "forward_test"
+
+    async def execute(self, message: GroupMessage, group_id: str) -> None:
+        await self.bot.send_group_message("开始测试合并转发...", group_id)
+
+        logger.info("=== 测试1: 单节点 ===")
+        r1 = await self.bot.test_forward_single_node(group_id)
+        logger.info(f"单节点结果: {r1}")
+
+        logger.info("=== 测试2: 多节点 ===")
+        r2 = await self.bot.test_forward_multi_nodes(group_id)
+        logger.info(f"多节点结果: {r2}")
+
+        logger.info("=== 测试3: 分组节点 ===")
+        r3 = await self.bot.test_forward_grouped_nodes(group_id, per_node=2)
+        logger.info(f"分组节点结果: {r3}")
