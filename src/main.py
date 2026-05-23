@@ -11,6 +11,7 @@ import jm
 from qq import *
 from typing import Union
 from asyncio import Queue
+from api_server import ApiServer
 from database import Database
 
 # class MessageHandler(event.EventHandler):
@@ -56,10 +57,11 @@ from database import Database
 
 async def main():
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format='%(asctime)s[%(name)s]-[%(levelname)s] %(message)s',
         handlers=[logging.StreamHandler(), logging.FileHandler('jm_bot.log', encoding='utf-8')]
     )
+    logging.getLogger("websockets").setLevel(logging.WARNING)
     logger = logging.getLogger(__name__)
     
     jmoption: jmcomic.JmOption = jm.jmcomic_create_option_by_file()
@@ -80,6 +82,8 @@ async def main():
         # Initialize database
         db = Database()
         await db.connect()
+        api_server = ApiServer(db)
+        await api_server.start()
         
         event_router = event.EventRouter(main_event_queue, bot)
         heartbeat_handler = event.HeartbeatEventHandler(main_event_queue)
@@ -94,6 +98,7 @@ async def main():
             # Keep the connection alive
             await asyncio.Future()  # Run forever
         finally:
+            await api_server.stop()
             await db.close()
 
 asyncio.run(main())

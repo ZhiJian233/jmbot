@@ -1,0 +1,6 @@
+enabled: true
+host: "0.0.0.0"
+port: 8787
+cors_origins:
+  - "*"
+base_path: "/api/v1"

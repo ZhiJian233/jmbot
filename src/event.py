@@ -162,7 +162,7 @@ class DownloadFinishedEventHandler(EventHandler):
         if album_detail:
             await self._send_album_completion_message(album_detail, group_id)
         else:
-            await self._handle_missing_album_detail(group_id)
+            logger.warning("下载完成事件缺少专辑详情，跳过发送图片")
     
     async def _send_album_completion_message(
         self, 
@@ -182,26 +182,6 @@ class DownloadFinishedEventHandler(EventHandler):
         )
         await self.bot.send_forward_photos(str(group_id), album_detail)
     
-    async def _handle_missing_album_detail(self, group_id: str) -> None:
-        """处理专辑详情缺失的情况
-        
-        Args:
-            group_id: 群组ID
-        """
-        try:
-            album = await self.database.get_album_detail_by_id(str(group_id))
-            if album:
-                logger.debug(f"从数据库获取专辑详情 - 名称: {album.name}, ID: {album.id}")
-                await self.bot.send_group_message(
-                    f"专辑：{album.name} (ID: {album.id})下载完成", 
-                    str(group_id)
-                )
-                await self.bot.send_forward_photos(str(group_id), album)
-            else:
-                logger.warning(f"无法从数据库获取群组 {group_id} 的专辑详情")
-        except Exception as e:
-            logger.error(f"获取专辑详情失败: {e}", exc_info=True)
-
 
 class DownloadRequestEventHandler(EventHandler):
     """下载请求事件处理器
@@ -455,16 +435,15 @@ class RecordDownloadEventHandler(EventHandler):
         album_name = album_detail.name
         downloader_id = str(message.sender.user_id)
         download_time = datetime.datetime.fromtimestamp(message.time).isoformat()
+        username = message.sender.nickname
 
         try:
-            # 记录专辑信息
-            await self.database.add_album(album_detail, download_time, downloader_id)
-            
-            # 记录下载事件
-            await self.database.add_download(album_id, downloader_id, download_time)
-            
-            # 记录用户信息
-            await self.database.add_user(downloader_id, message.sender.nickname)
+            await self.database.record_download(
+                album_detail=album_detail,
+                download_time=download_time,
+                downloader_id=downloader_id,
+                username=username,
+            )
             
             logger.info(f"成功记录专辑 '{album_name}' 的下载，下载者: {downloader_id}")
         except Exception as e:
