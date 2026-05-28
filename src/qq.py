@@ -14,7 +14,7 @@ import event
 import file_utils
 from message_types import Message, GroupMessage, PrivateMessage
 from jmcomic import JmAlbumDetail
-from PIL import Image
+from PIL import Image, ImageFilter
 import time
 import datetime
 
@@ -86,7 +86,20 @@ class QQBot:
                     targets.append(str(qq))
         return targets
 
-    async def send_forward_text(self, group_id: str, text: str, title: str) -> None:
+    @staticmethod
+    def _make_forward_node(content: list, user_id: Optional[int] = None, nickname: Optional[str] = None) -> dict:
+        node_data = {
+            "nickname": "麦麦" if nickname is None else nickname,
+            "content": content,
+        }
+        if user_id is not None:
+            node_data["user_id"] = user_id
+        return {
+            "type": "node",
+            "data": node_data,
+        }
+
+    async def send_forward_text(self, group_id: str, text: str, title: str, user_id: Optional[int] = None) -> None:
         """将多行文本包装为合并转发消息，长文本自动分多个节点"""
         # 按行分割，每个节点最多 4000 字符
         lines = text.split('\n')
@@ -106,14 +119,7 @@ class QQBot:
         data = {
             "group_id": f"{group_id}",
             "message": [
-                {
-                    "type": "node",
-                    "data": {
-                        "user_id": 2377284392,
-                        "nickname": "麦麦",
-                        "content": node_content,
-                    }
-                }
+                self._make_forward_node(node_content, user_id=user_id)
                 for node_content in nodes
             ],
             "news": [{"text": title}],
@@ -132,18 +138,18 @@ class QQBot:
         }
         await self.ws.send(json.dumps(req))
 
-    async def send_forward_msg(self, group_id: str,content: list, title: str, subtitle: str) -> dict:
+    async def send_forward_msg(
+        self,
+        group_id: str,
+        content: list,
+        title: str,
+        subtitle: str,
+        user_id: Optional[int] = None,
+    ) -> dict:
         data = {
             "group_id": f"{group_id}",
             "message": [
-                {
-                    "type": "node",
-                    "data": {
-                        "user_id": 2377284392,
-                        "nickname": "麦麦",
-                        "content": content,
-                    }
-                }
+                self._make_forward_node(content, user_id=user_id)
             ],
             "news": [
                 {
@@ -163,14 +169,7 @@ class QQBot:
         data = {
             "group_id": f"{group_id}",
             "message": [
-                {
-                    "type": "node",
-                    "data": {
-                        "user_id": 2377284392,
-                        "nickname": "麦麦",
-                        "content": node_content,
-                    }
-                }
+                self._make_forward_node(node_content)
             ],
             "news": [{"text": "单节点测试"}],
             "prompt": "单节点测试",
@@ -184,14 +183,7 @@ class QQBot:
         texts = [f"多节点消息 #{i}" for i in range(1, 6)]
         nodes = []
         for t in texts:
-            nodes.append({
-                "type": "node",
-                "data": {
-                    "user_id": 2377284392,
-                    "nickname": "麦麦",
-                    "content": [{"type": "text", "data": {"text": t}}],
-                }
-            })
+            nodes.append(self._make_forward_node([{"type": "text", "data": {"text": t}}]))
         data = {
             "group_id": f"{group_id}",
             "message": nodes,
@@ -209,14 +201,7 @@ class QQBot:
         for i in range(0, len(texts), per_node):
             group = texts[i:i + per_node]
             group_content = [{"type": "text", "data": {"text": t}} for t in group]
-            nodes.append({
-                "type": "node",
-                "data": {
-                    "user_id": 2377284392,
-                    "nickname": "麦麦",
-                    "content": group_content,
-                }
-            })
+            nodes.append(self._make_forward_node(group_content))
         data = {
             "group_id": f"{group_id}",
             "message": nodes,
@@ -227,66 +212,132 @@ class QQBot:
         }
         return await self.call_api("send_forward_msg", data, timeout=300)
 
-    async def send_forward_albums(self, group_id: str, albums: list[dict], tag_name: str) -> None:
-        """将专辑列表作为合并转发消息发送，每个专辑一个气泡"""
+    async def send_forward_albums(
+        self,
+        group_id: str,
+        albums: list[dict],
+        tag_name: str,
+        user_id: Optional[int] = None,
+    ) -> None:
+        """将专辑列表作为合并转发消息发送，每个专辑一个气泡
+
+        封面使用 radius=3 高斯模糊发送，发送失败则直接退化为纯文字。
+        """
         jmpath = os.environ['JMBOT_PATH']
-        nodes = []
+
+        # 收集存在的封面路径
+        cover_album_ids = []
+        cover_paths = []
         for album in albums:
-            # 解析 detail_json
-            authors = ""
-            tags = ""
-            if album.get("detail_json"):
-                try:
-                    detail = json.loads(album["detail_json"])
-                    author_list = detail.get("authors", [])
-                    authors = ", ".join(author_list) if author_list else "未知"
-                    tag_list = detail.get("tags", [])
-                    tags = ", ".join(tag_list) if tag_list else ""
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-            text_parts = [f"名称: {album['name']}", f"作者: {authors}"]
-            if tags:
-                text_parts.append(f"标签: {tags}")
-
-            content = [
-                {"type": "text", "data": {"text": "\n".join(text_parts)}}
-            ]
-
-            # 添加封面图
             cover_path = f"{jmpath}/albums/{album['id']}/00001.jpg"
             if os.path.exists(cover_path):
-                content.append(
-                    {"type": "image", "data": {"file": f"file:///{cover_path}"}}
-                )
+                cover_album_ids.append(str(album['id']))
+                cover_paths.append(cover_path)
 
-            nodes.append({
-                "type": "node",
-                "data": {
-                    "user_id": 2377284392,
-                    "nickname": "麦麦",
-                    "content": content,
+        radius = 3
+        blurred = []
+        cover_map = {}
+        if cover_paths:
+            blurred = await self._blur_images(cover_paths, radius)
+            cover_map = dict(zip(cover_album_ids, blurred))
+
+        try:
+            nodes = []
+            for album in albums:
+                authors = ""
+                tags = ""
+                if album.get("detail_json"):
+                    try:
+                        detail = json.loads(album["detail_json"])
+                        author_list = detail.get("authors", [])
+                        authors = ", ".join(author_list) if author_list else "未知"
+                        tag_list = detail.get("tags", [])
+                        tags = ", ".join(tag_list) if tag_list else ""
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                text_parts = [f"ID: {album['id']}", f"名称: {album['name']}", f"作者: {authors}"]
+                if tags:
+                    text_parts.append(f"标签: {tags}")
+
+                content = [
+                    {"type": "text", "data": {"text": "\n".join(text_parts)}}
+                ]
+
+                album_id = str(album['id'])
+                if album_id in cover_map:
+                    content.append(
+                        {"type": "image", "data": {"file": f"file:///{cover_map[album_id]}"}}
+                    )
+
+                nodes.append(self._make_forward_node(content, user_id=user_id))
+
+            # 打乱顺序以绕过检测
+            random.shuffle(nodes)
+
+            data = {
+                "group_id": f"{group_id}",
+                "message": nodes,
+                "news": [{"text": tag_name}],
+                "prompt": tag_name,
+                "summary": tag_name,
+                "source": tag_name,
+            }
+            return await self.call_api("send_forward_msg", data, timeout=300)
+        except Exception as e:
+            logger.warning(f"send_forward_albums radius={radius} 失败，改为纯文字发送: {e}")
+            try:
+                nodes = []
+                for album in albums:
+                    authors = ""
+                    tags = ""
+                    if album.get("detail_json"):
+                        try:
+                            detail = json.loads(album["detail_json"])
+                            author_list = detail.get("authors", [])
+                            authors = ", ".join(author_list) if author_list else "未知"
+                            tag_list = detail.get("tags", [])
+                            tags = ", ".join(tag_list) if tag_list else ""
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                    text_parts = [f"ID: {album['id']}", f"名称: {album['name']}", f"作者: {authors}"]
+                    if tags:
+                        text_parts.append(f"标签: {tags}")
+                    nodes.append(
+                        self._make_forward_node(
+                            [{"type": "text", "data": {"text": "\n".join(text_parts)}}],
+                            user_id=user_id,
+                        )
+                    )
+                random.shuffle(nodes)
+                data = {
+                    "group_id": f"{group_id}",
+                    "message": nodes,
+                    "news": [{"text": tag_name}],
+                    "prompt": tag_name,
+                    "summary": tag_name,
+                    "source": tag_name,
                 }
-            })
+                return await self.call_api("send_forward_msg", data, timeout=300)
+            except Exception:
+                logger.error("send_forward_albums 纯文字发送也失败")
+                raise
+        finally:
+            for p in blurred:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
 
+    def _make_forward_msg_content(
+        self,
+        content: list,
+        title: str,
+        subtitle: str,
+        user_id: Optional[int] = None,
+    ) -> Dict:
         data = {
-            "group_id": f"{group_id}",
-            "message": nodes,
-            "news": [{"text": tag_name}],
-            "prompt": tag_name,
-            "summary": tag_name,
-            "source": tag_name,
-        }
-        return await self.call_api("send_forward_msg", data, timeout=300)
-
-    def _make_forward_msg_content(self, content: list, title: str, subtitle: str) -> Dict:
-        data = {
-                "type": "node",
-                "data": {
-                    "user_id": 2377284392,
-                    "nickname": "麦麦",
-                    "content": content,
-                },
+                **self._make_forward_node(content, user_id=user_id),
                 "news":[{
                     "text": subtitle
                 }],
@@ -407,6 +458,24 @@ class QQBot:
         flipped.save(tmp, format='JPEG', quality=95, optimize=False)
         tmp.close()
         return tmp.name
+
+    @staticmethod
+    def _blur_image(path: str, radius: int = 12) -> str:
+        """同步：高斯模糊图片到临时文件，绕过审核"""
+        img = Image.open(path)
+        img.load()
+        blurred = img.filter(ImageFilter.GaussianBlur(radius=radius))
+        tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+        blurred.save(tmp, format='JPEG', quality=85, optimize=False)
+        tmp.close()
+        return tmp.name
+
+    async def _blur_images(self, paths: list[str], radius: int = 12) -> list[str]:
+        """并行模糊多张图片"""
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            tasks = [loop.run_in_executor(pool, self._blur_image, p, radius) for p in paths]
+            return await asyncio.gather(*tasks)
 
     async def _reprocess_images(self, paths: list[str]) -> list[str]:
         """并行重编码图片，改变 hash 绕过 QQ 重复图片拦截"""
