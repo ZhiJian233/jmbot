@@ -3,6 +3,7 @@ src/__pycache__/
 .venv/
 .vscode/
 options/*_option.yml
+!options/*_option_template.yml
 *venv*/
 *.log
 .*
@@ -11,3 +12,4 @@ plans/event_improvement_plan.md
 requirements.txt
 tests/__pycache__/test_event.cpython-313-pytest-9.0.2.pyc
 tests/test_event.py
+llms.txt
