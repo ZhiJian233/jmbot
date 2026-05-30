@@ -508,7 +508,7 @@ class CommandHandler(EventHandler):
         self.database = database
         self.commands = [
             TagAllCommand(bot, database),
-            TagSpecificCommand(bot, database),
+            AlbumQueryCommand(bot, database),
             TagManagementCommand(bot, database),
             AlbumTagQueryCommand(bot, database),
             UserDownloadCountCommand(bot, database),
@@ -594,8 +594,14 @@ class TagAllCommand(BaseCommand):
             await self.bot.send_group_message("获取tag统计失败", group_id)
 
 
-class TagSpecificCommand(BaseCommand):
-    """显示特定tag专辑的命令"""
+class AlbumQueryCommand(BaseCommand):
+    """统一的专辑列表查询命令"""
+
+    QUERY_LABELS = {
+        "tag": "tag",
+        "title": "标题",
+        "author": "作者",
+    }
 
     def can_handle(self, message_text: str) -> bool:
         """判断是否可以处理该消息文本
@@ -604,30 +610,32 @@ class TagSpecificCommand(BaseCommand):
             message_text: 消息文本内容
 
         Returns:
-            如果是 'tag <name>' 命令则返回True，否则返回False
+            如果是 'query <type> <keyword>' 命令则返回True，否则返回False
         """
-        return re.match(r"^tag .+$", message_text.strip()) is not None
+        return re.match(r"^query (tag|title|author) .+$", message_text.strip()) is not None
 
     async def execute(self, message: GroupMessage, group_id: str) -> None:
         text_content = QQBot.get_message_text_content(message)
         text = text_content.strip() if text_content else ""
-        match = re.match(r"^tag (.+)$", text)
+        match = re.match(r"^query (tag|title|author) (.+)$", text)
         if not match:
             return
 
-        tag_name = match.group(1)
+        query_type = match.group(1)
+        keyword = match.group(2).strip()
+        label = self.QUERY_LABELS[query_type]
         try:
-            albums = await self.database.get_albums_by_tag(tag_name)
+            albums = await self.database.query_albums(query_type, keyword)
             if not albums:
-                await self.bot.send_group_message(f"tag '{tag_name}' 下暂无专辑", group_id)
+                await self.bot.send_group_message(f"{label} '{keyword}' 下暂无专辑", group_id)
                 return
 
             await self.bot.send_forward_albums(
-                group_id, albums, f"tag '{tag_name}' 共有 {len(albums)} 个专辑"
+                group_id, albums, f"{label} '{keyword}' 共有 {len(albums)} 个专辑"
             )
         except Exception as e:
-            logger.error(f"获取tag '{tag_name}' 专辑失败: {e}", exc_info=True)
-            await self.bot.send_group_message(f"获取tag '{tag_name}' 专辑失败", group_id)
+            logger.error(f"获取{label} '{keyword}' 专辑失败: {e}", exc_info=True)
+            await self.bot.send_group_message(f"获取{label} '{keyword}' 专辑失败", group_id)
 
 
 class TagManagementCommand(BaseCommand):

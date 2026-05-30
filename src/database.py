@@ -3,7 +3,7 @@ import json
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Literal, Optional
 
 from jmcomic import JmAlbumDetail
 
@@ -100,6 +100,15 @@ class Database:
     async def get_albums_by_tag(self, tag_name: str) -> list[dict]:
         return await self.list_albums(limit=1000, offset=0, tag=tag_name)
 
+    async def query_albums(
+        self,
+        query_type: Literal["tag", "title", "author"],
+        keyword: str,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return await self._run(self._query_albums_sync, query_type, keyword, limit, offset)
+
     async def add_tag_to_album(self, album_id: str, tag_name: str) -> bool:
         return await self._run(self._add_tag_to_album_sync, album_id, tag_name)
 
@@ -116,7 +125,7 @@ class Database:
         return await self._run(self._get_overview_stats_sync)
 
     async def count_albums(self, q: Optional[str] = None, tag: Optional[str] = None) -> int:
-        return await self._run(self._count_albums_sync, q, tag)
+        return await self._run(self._count_albums_sync, q, tag, None, None)
 
     async def list_albums(
         self,
@@ -124,8 +133,10 @@ class Database:
         offset: int,
         q: Optional[str] = None,
         tag: Optional[str] = None,
+        title: Optional[str] = None,
+        author: Optional[str] = None,
     ) -> list[dict[str, Any]]:
-        return await self._run(self._list_albums_sync, limit, offset, q, tag)
+        return await self._run(self._list_albums_sync, limit, offset, q, tag, title, author)
 
     async def list_users(self, limit: int, offset: int) -> tuple[int, list[dict[str, Any]]]:
         return await self._run(self._list_users_sync, limit, offset)
@@ -552,12 +563,39 @@ class Database:
             result[table] = int(row["count"]) if row else 0
         return result
 
-    def _count_albums_sync(self, q: Optional[str], tag: Optional[str]) -> int:
+    def _query_albums_sync(
+        self,
+        query_type: Literal["tag", "title", "author"],
+        keyword: str,
+        limit: int,
+        offset: int,
+    ) -> list[dict[str, Any]]:
+        normalized = keyword.strip()
+        if not normalized:
+            return []
+
+        if query_type == "tag":
+            return self._list_albums_sync(limit, offset, None, normalized, None, None)
+        if query_type == "title":
+            return self._list_albums_sync(limit, offset, None, None, normalized, None)
+        if query_type == "author":
+            return self._list_albums_sync(limit, offset, None, None, None, normalized)
+        raise ValueError(f"unsupported query type: {query_type}")
+
+    def _count_albums_sync(
+        self,
+        q: Optional[str],
+        tag: Optional[str],
+        title: Optional[str],
+        author: Optional[str],
+    ) -> int:
         conn = self._require_conn()
         sql, params = self._album_filter_sql(
             base_sql="SELECT COUNT(DISTINCT a.id) AS count FROM albums a",
             q=q,
             tag=tag,
+            title=title,
+            author=author,
         )
         row = conn.execute(sql, params).fetchone()
         return int(row["count"]) if row else 0
@@ -568,6 +606,8 @@ class Database:
         offset: int,
         q: Optional[str],
         tag: Optional[str],
+        title: Optional[str],
+        author: Optional[str],
     ) -> list[dict[str, Any]]:
         conn = self._require_conn()
         sql, params = self._album_filter_sql(
@@ -587,6 +627,8 @@ class Database:
             """,
             q=q,
             tag=tag,
+            title=title,
+            author=author,
             suffix="""
                 GROUP BY a.id, a.name, a.first_download_time, a.first_downloader_id, a.detail_json, u.username
                 ORDER BY a.first_download_time DESC, a.id DESC
@@ -738,6 +780,8 @@ class Database:
         base_sql: str,
         q: Optional[str] = None,
         tag: Optional[str] = None,
+        title: Optional[str] = None,
+        author: Optional[str] = None,
         suffix: str = "",
     ) -> tuple[str, tuple[Any, ...]]:
         joins = []
@@ -758,6 +802,25 @@ class Database:
             keyword = f"%{q}%"
             conditions.append("(a.id LIKE ? OR a.name LIKE ?)")
             params.extend([keyword, keyword])
+
+        if title:
+            conditions.append("a.name LIKE ?")
+            params.append(f"%{title}%")
+
+        if author:
+            conditions.append(
+                """
+                (
+                    json_valid(a.detail_json)
+                    AND EXISTS (
+                        SELECT 1
+                        FROM json_each(a.detail_json, '$.authors') AS author_item
+                        WHERE author_item.value LIKE ?
+                    )
+                )
+                """
+            )
+            params.append(f"%{author}%")
 
         sql = base_sql
         if joins:

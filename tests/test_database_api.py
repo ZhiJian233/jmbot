@@ -201,6 +201,46 @@ def test_add_and_remove_tag_syncs_detail_json(tmp_path: Path):
     with_db(tmp_path, exercise)
 
 
+def test_query_albums_supports_tag_exact_title_like_and_author_like(tmp_path: Path):
+    def exercise(db: Database):
+        run(
+            db.record_download(
+                album_detail=make_album(
+                    "3101",
+                    "纯爱夏日物语",
+                    ["纯爱", "校园"],
+                    authors=["青空老师"],
+                ),
+                download_time="2026-05-23T10:00:00",
+                downloader_id="u1",
+                username="user-1",
+            )
+        )
+        run(
+            db.record_download(
+                album_detail=make_album(
+                    "3102",
+                    "夏日补习班",
+                    ["教师", "剧情向"],
+                    authors=["白川"],
+                ),
+                download_time="2026-05-24T10:00:00",
+                downloader_id="u2",
+                username="user-2",
+            )
+        )
+
+        tag_result = run(db.query_albums("tag", "纯爱"))
+        title_result = run(db.query_albums("title", "夏日"))
+        author_result = run(db.query_albums("author", "空老"))
+
+        assert [item["id"] for item in tag_result] == ["3101"]
+        assert [item["id"] for item in title_result] == ["3102", "3101"]
+        assert [item["id"] for item in author_result] == ["3101"]
+
+    with_db(tmp_path, exercise)
+
+
 def test_api_exposes_album_and_user_queries(tmp_path: Path):
     os.environ["JMBOT_PATH"] = str(tmp_path)
     (tmp_path / "albums" / "4001").mkdir(parents=True, exist_ok=True)
