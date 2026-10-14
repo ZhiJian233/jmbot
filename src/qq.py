@@ -218,7 +218,7 @@ class QQBot:
         albums: list[dict],
         tag_name: str,
         user_id: Optional[int] = None,
-    ) -> None:
+    ) -> dict:
         """将专辑列表作为合并转发消息发送，每个专辑一个气泡
 
         封面使用 radius=3 高斯模糊发送，发送失败则直接退化为纯文字。
